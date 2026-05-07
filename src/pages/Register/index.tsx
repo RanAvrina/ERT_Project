@@ -1,11 +1,15 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { AuthShell } from '../../components/auth/AuthShell'
+import { useApartment } from '../../context/ApartmentContext'
 import { useAuth } from '../../context/AuthContext'
 import { appRoutes } from '../../routes/paths'
+import { clearPendingInvite, readPendingInvite } from '../../utils/invite'
+import { isValidEmail, isValidPhone } from '../../utils/validation'
 
 export function RegisterPage() {
-  const { user, register } = useAuth()
+  const { completeInviteJoin } = useApartment()
+  const { user, register, logout, updateSessionUser } = useAuth()
   const navigate = useNavigate()
   const [form, setForm] = useState({
     name: '',
@@ -14,26 +18,178 @@ export function RegisterPage() {
     password: '',
   })
   const [error, setError] = useState('')
+  const [errors, setErrors] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    password: '',
+  })
+  const [createdAccountEmail, setCreatedAccountEmail] = useState('')
+  const pendingInviteForSession = readPendingInvite()
 
-  if (user) return <Navigate to={appRoutes.dashboard} replace />
+  function logoutForInviteRegister() {
+    logout()
+    setError('')
+  }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    const nextErrors = { name: '', phone: '', email: '', password: '' }
 
-    const result = register(form)
+    if (!form.name.trim()) {
+      nextErrors.name = 'חובה למלא שם מלא.'
+    }
+
+    if (!form.phone.trim()) {
+      nextErrors.phone = 'נדרש מספר טלפון.'
+    } else if (!isValidPhone(form.phone)) {
+      nextErrors.phone = 'מספר הטלפון לא תקין.'
+    }
+
+    if (!form.email.trim()) {
+      nextErrors.email = 'נדרשת כתובת אימייל.'
+    } else if (!isValidEmail(form.email)) {
+      nextErrors.email = 'כתובת האימייל לא תקינה.'
+    }
+
+    if (!form.password.trim()) {
+      nextErrors.password = 'צריך לבחור סיסמה.'
+    } else if (form.password.trim().length < 6) {
+      nextErrors.password = 'הסיסמה צריכה לכלול לפחות 6 תווים.'
+    }
+
+    setErrors(nextErrors)
+    if (
+      nextErrors.name ||
+      nextErrors.phone ||
+      nextErrors.email ||
+      nextErrors.password
+    ) {
+      return
+    }
+
+    const pendingInvite = readPendingInvite()
+    const result = register({
+      ...form,
+      role: pendingInvite?.role ?? 'tenant',
+      attachToApartment: false,
+      signInAfterRegister: Boolean(pendingInvite),
+    })
     if (!result.ok) {
       setError(result.error)
       return
     }
 
-    navigate(appRoutes.dashboard)
+    if (pendingInvite) {
+      if (!result.user) {
+        logout()
+        setError('לא הצלחנו להשלים את ההצטרפות. נסו להירשם שוב.')
+        return
+      }
+
+      const joinResult = completeInviteJoin({
+        apartmentId: pendingInvite.apartmentId,
+        role: pendingInvite.role,
+        user: result.user,
+      })
+
+      if (!joinResult.ok || !joinResult.user) {
+        logout()
+        setError(joinResult.error)
+        return
+      }
+
+      updateSessionUser(joinResult.user)
+      clearPendingInvite()
+      navigate(pendingInvite.role === 'landlord' ? appRoutes.tickets : appRoutes.dashboard)
+      return
+    }
+
+    setCreatedAccountEmail(form.email.trim().toLowerCase())
+    setForm({
+      name: '',
+      phone: '',
+      email: '',
+      password: '',
+    })
+  }
+
+  if (user && pendingInviteForSession) {
+    return (
+      <AuthShell
+        title="בחירת חשבון להצטרפות"
+        subtitle="צריך לאשר עם איזה חשבון ממשיכים"
+        hideIntro
+        footer={
+          <p className="auth-card__footer-text">
+            יש לכם חשבון אחר?{' '}
+            <button type="button" className="link link-button" onClick={logoutForInviteRegister}>
+              התנתקו והירשמו מחדש
+            </button>
+          </p>
+        }
+      >
+        <div className="form-stack">
+          <p className="form-message">
+            כרגע מחוברים כ{user.name} ({user.email}). כדי ליצור חשבון חדש דרך
+            ההזמנה צריך להתנתק מהחשבון הנוכחי.
+          </p>
+          {error ? <p className="form-message form-message--error">{error}</p> : null}
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            onClick={logoutForInviteRegister}
+          >
+            התנתק וצור חשבון חדש
+          </button>
+        </div>
+      </AuthShell>
+    )
+  }
+
+  if (user) return <Navigate to={appRoutes.dashboard} replace />
+
+  if (createdAccountEmail) {
+    return (
+      <AuthShell
+        title="החשבון נוצר"
+        subtitle="השלב הבא תלוי בהזמנה לדירה"
+        hideIntro
+        footer={
+          <p className="auth-card__footer-text">
+            כבר יש לכם קישור הזמנה?{' '}
+            <Link to={appRoutes.login} className="link">
+              עברו להתחברות
+            </Link>
+          </p>
+        }
+      >
+        <div className="form-stack">
+          <p className="form-message form-message--success">
+            החשבון עבור {createdAccountEmail} נוצר בהצלחה.
+          </p>
+          <p className="form-message">
+            כרגע החשבון עדיין לא משויך לדירה. כדי להצטרף לדירה צריך להיכנס דרך
+            קישור הזמנה מתאים.
+          </p>
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            onClick={() => navigate(appRoutes.login)}
+          >
+            מעבר להתחברות
+          </button>
+        </div>
+      </AuthShell>
+    )
   }
 
   return (
     <AuthShell
       title="פותחים חשבון"
       subtitle="כמה פרטים קצרים ואתם בפנים"
+      hideIntro
       footer={
         <p className="auth-card__footer-text">
           כבר רשומים?{' '}
@@ -55,6 +211,7 @@ export function RegisterPage() {
               }
               placeholder="איך השותפים יראו אתכם?"
             />
+            {errors.name ? <span className="field__error">{errors.name}</span> : null}
           </label>
           <label className="field">
             <span className="field__label">מספר טלפון</span>
@@ -68,6 +225,7 @@ export function RegisterPage() {
               }
               placeholder="050-123-4567"
             />
+            {errors.phone ? <span className="field__error">{errors.phone}</span> : null}
           </label>
           <label className="field">
             <span className="field__label">כתובת אימייל</span>
@@ -82,6 +240,7 @@ export function RegisterPage() {
               }
               placeholder="name@example.com"
             />
+            {errors.email ? <span className="field__error">{errors.email}</span> : null}
           </label>
           <label className="field">
             <span className="field__label">סיסמה</span>
@@ -96,9 +255,9 @@ export function RegisterPage() {
               }
               placeholder="לפחות 6 תווים"
             />
-            <span className="field__hint">
-              החשבון יישמר רק בסשן הנוכחי לצורכי הדגמה.
-            </span>
+            {errors.password ? (
+              <span className="field__error">{errors.password}</span>
+            ) : null}
           </label>
           {error ? <p className="form-message form-message--error">{error}</p> : null}
           <button type="submit" className="btn btn--primary btn--block">

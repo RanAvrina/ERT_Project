@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { ShoppingItemStatusChip } from '../../components/StatusChip'
-import { mockShoppingItems, mockShoppingList } from '../../data/mock'
+import { useShoppingItemsStore } from '../../data/repositories/shoppingRepository'
+import { useApartment } from '../../context/ApartmentContext'
 import type { ShoppingItem, ShoppingItemStatus } from '../../types/models'
 
 interface ShoppingFormState {
@@ -31,18 +33,35 @@ const initialShoppingForm: ShoppingFormState = {
   status: 'open',
 }
 
+function buildFormFromItem(item: ShoppingItem): ShoppingFormState {
+  return {
+    itemName: item.item_name,
+    quantity: item.quantity ?? '',
+    category: item.category ?? '',
+    status: item.status,
+  }
+}
+
 export function ShoppingPage() {
-  const [items, setItems] = useState<ShoppingItem[]>(mockShoppingItems)
+  const { current } = useApartment()
+  const apartmentId = current?.apartment.id ?? 0
+  const defaultActorId = current?.adminUser.id ?? current?.roommates[0]?.id ?? 0
+  const [items, setItems] = useShoppingItemsStore()
   const [isShoppingModalOpen, setIsShoppingModalOpen] = useState(false)
-  const [shoppingForm, setShoppingForm] =
-    useState<ShoppingFormState>(initialShoppingForm)
+  const [selectedItem, setSelectedItem] = useState<ShoppingItem | null>(null)
+  const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null)
+  const [itemToDelete, setItemToDelete] = useState<ShoppingItem | null>(null)
+  const [shoppingForm, setShoppingForm] = useState<ShoppingFormState>(initialShoppingForm)
   const [formError, setFormError] = useState('')
   const [selectedFilter, setSelectedFilter] = useState<ShoppingFilter>('all')
   const [isCompletedOpen, setIsCompletedOpen] = useState(true)
-  const openItems = items.filter((item) => item.status === 'open')
-  const purchasedItems = items.filter(
-    (item) => item.status === 'purchased',
+
+  const apartmentItems = useMemo(
+    () => items.filter((item) => (item.apartment_id ?? apartmentId) === apartmentId),
+    [apartmentId, items],
   )
+  const openItems = apartmentItems.filter((item) => item.status === 'open')
+  const purchasedItems = apartmentItems.filter((item) => item.status === 'purchased')
   const shouldShowOpenItems = selectedFilter === 'all' || selectedFilter === 'open'
   const shouldShowPurchasedItems =
     selectedFilter === 'all' || selectedFilter === 'purchased'
@@ -51,8 +70,24 @@ export function ShoppingPage() {
     setShoppingForm((current) => ({ ...current, [field]: value }))
   }
 
+  function openAddItemModal() {
+    setEditingItem(null)
+    setShoppingForm(initialShoppingForm)
+    setFormError('')
+    setIsShoppingModalOpen(true)
+  }
+
+  function openEditItemModal(item: ShoppingItem) {
+    setSelectedItem(null)
+    setEditingItem(item)
+    setShoppingForm(buildFormFromItem(item))
+    setFormError('')
+    setIsShoppingModalOpen(true)
+  }
+
   function closeShoppingModal() {
     setIsShoppingModalOpen(false)
+    setEditingItem(null)
     setShoppingForm(initialShoppingForm)
     setFormError('')
   }
@@ -66,25 +101,50 @@ export function ShoppingPage() {
       return
     }
 
-    const nextId =
-      items.length > 0 ? Math.max(...items.map((item) => item.id)) + 1 : 1
-    const isPurchased = shoppingForm.status === 'purchased'
+    if (editingItem) {
+      setItems((current) =>
+        current.map((item) =>
+          item.id === editingItem.id
+            ? {
+                ...item,
+                item_name: shoppingForm.itemName.trim(),
+                quantity: shoppingForm.quantity.trim() || null,
+                category: shoppingForm.category.trim() || null,
+                status: shoppingForm.status,
+                purchased_by:
+                  shoppingForm.status === 'purchased'
+                    ? item.purchased_by ?? defaultActorId
+                    : null,
+                purchased_at:
+                  shoppingForm.status === 'purchased'
+                    ? item.purchased_at ?? new Date().toISOString()
+                    : null,
+              }
+            : item,
+        ),
+      )
+    } else {
+      const nextId = items.length > 0 ? Math.max(...items.map((item) => item.id)) + 1 : 1
+      const isPurchased = shoppingForm.status === 'purchased'
 
-    setItems((current) => [
-      {
-        id: nextId,
-        shopping_list_id: mockShoppingList.id,
-        item_name: shoppingForm.itemName.trim(),
-        quantity: shoppingForm.quantity.trim() || null,
-        category: shoppingForm.category.trim() || null,
-        status: shoppingForm.status,
-        added_by: 1,
-        purchased_by: isPurchased ? 1 : null,
-        created_at: new Date().toISOString().slice(0, 10),
-        purchased_at: isPurchased ? new Date().toISOString() : null,
-      },
-      ...current,
-    ])
+      setItems((current) => [
+        {
+          id: nextId,
+          apartment_id: apartmentId,
+          shopping_list_id: apartmentId || nextId,
+          item_name: shoppingForm.itemName.trim(),
+          quantity: shoppingForm.quantity.trim() || null,
+          category: shoppingForm.category.trim() || null,
+          status: shoppingForm.status,
+          added_by: defaultActorId,
+          purchased_by: isPurchased ? defaultActorId : null,
+          created_at: new Date().toISOString().slice(0, 10),
+          purchased_at: isPurchased ? new Date().toISOString() : null,
+        },
+        ...current,
+      ])
+    }
+
     closeShoppingModal()
   }
 
@@ -97,7 +157,7 @@ export function ShoppingPage() {
           return {
             ...item,
             status,
-            purchased_by: item.purchased_by ?? 1,
+            purchased_by: item.purchased_by ?? defaultActorId,
             purchased_at: item.purchased_at ?? new Date().toISOString(),
           }
         }
@@ -119,6 +179,14 @@ export function ShoppingPage() {
     )
   }
 
+  function confirmDeleteItem() {
+    if (!itemToDelete) return
+    setItems((current) => current.filter((item) => item.id !== itemToDelete.id))
+    if (selectedItem?.id === itemToDelete.id) setSelectedItem(null)
+    if (editingItem?.id === itemToDelete.id) closeShoppingModal()
+    setItemToDelete(null)
+  }
+
   function renderShoppingItems(sectionItems: ShoppingItem[], emptyText: string) {
     if (sectionItems.length === 0) {
       return <p className="muted shopping-empty">{emptyText}</p>
@@ -133,34 +201,22 @@ export function ShoppingPage() {
               item.status !== 'open' ? ' shop-item-card--muted' : ''
             }`}
           >
-            <div className="shop-item-card__main">
-              <div className="shop-list__title">{item.item_name}</div>
-              <div className="shop-list__meta shop-item-card__details">
-                <span>כמות: {item.quantity ?? 'לא צוינה'}</span>
-                <span>קטגוריה: {item.category ?? 'ללא קטגוריה'}</span>
+            <button
+              type="button"
+              className="expense-item-card__button"
+              onClick={() => setSelectedItem(item)}
+            >
+              <div className="shop-item-card__main">
+                <div className="shop-list__title">{item.item_name}</div>
+                <div className="shop-list__meta shop-item-card__details">
+                  <span>כמות: {item.quantity ?? 'לא צוינה'}</span>
+                  <span>קטגוריה: {item.category ?? 'ללא קטגוריה'}</span>
+                </div>
               </div>
-            </div>
-            <div className="shop-item-card__status">
-              <ShoppingItemStatusChip status={item.status} />
-              <label className="shopping-status-control">
-                <span>עדכון סטטוס</span>
-                <select
-                  value={item.status}
-                  onChange={(event) =>
-                    updateItemStatus(
-                      item.id,
-                      event.target.value as ShoppingItemStatus,
-                    )
-                  }
-                >
-                  {shoppingStatusOptions.map((status) => (
-                    <option key={status.value} value={status.value}>
-                      {status.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+              <div className="shop-item-card__status">
+                <ShoppingItemStatusChip status={item.status} />
+              </div>
+            </button>
           </li>
         ))}
       </ul>
@@ -170,14 +226,10 @@ export function ShoppingPage() {
   return (
     <div className="page shopping-page">
       <div className="page__head shopping-hero">
-        <div>
-          <p className="shopping-hero__eyebrow">קניות</p>
-          <h1 className="page__title">רשימת קניות</h1>
-        </div>
         <button
           type="button"
           className="btn btn--primary shopping-hero__action"
-          onClick={() => setIsShoppingModalOpen(true)}
+          onClick={openAddItemModal}
         >
           + פריט חדש
         </button>
@@ -235,10 +287,7 @@ export function ShoppingPage() {
             <span aria-hidden="true">{isCompletedOpen ? '−' : '+'}</span>
           </button>
           {isCompletedOpen
-            ? renderShoppingItems(
-                purchasedItems,
-                'עוד אין פריטים שסומנו כנרכשו.',
-              )
+            ? renderShoppingItems(purchasedItems, 'עוד אין פריטים שסומנו כנרכשו.')
             : null}
         </Card>
       ) : null}
@@ -253,15 +302,19 @@ export function ShoppingPage() {
           >
             <div className="shopping-modal__head">
               <div>
-                <p className="shopping-hero__eyebrow">פריט חדש</p>
-                <h2 id="add-shopping-item-title">מה צריך לקנות?</h2>
-                <p>הפריט יישמר כרגע רק ברשימת הדמו המקומית.</p>
+                <p className="shopping-hero__eyebrow">
+                  {editingItem ? 'עריכת פריט' : 'פריט חדש'}
+                </p>
+                <h2 id="add-shopping-item-title">
+                  {editingItem ? 'עדכון פריט קנייה' : 'מה צריך לקנות?'}
+                </h2>
+                <p>
+                  {editingItem
+                    ? 'אפשר לעדכן כאן את פרטי הפריט.'
+                    : 'הפריט יישמר כרגע רק ברשימת הדמו המקומית.'}
+                </p>
               </div>
-              <button
-                type="button"
-                className="btn-text"
-                onClick={closeShoppingModal}
-              >
+              <button type="button" className="btn-text" onClick={closeShoppingModal}>
                 סגירה
               </button>
             </div>
@@ -272,9 +325,7 @@ export function ShoppingPage() {
                 <input
                   className="field__input"
                   value={shoppingForm.itemName}
-                  onChange={(event) =>
-                    updateShoppingForm('itemName', event.target.value)
-                  }
+                  onChange={(event) => updateShoppingForm('itemName', event.target.value)}
                   placeholder="לדוגמה: ביצים"
                 />
               </label>
@@ -285,9 +336,7 @@ export function ShoppingPage() {
                   <input
                     className="field__input"
                     value={shoppingForm.quantity}
-                    onChange={(event) =>
-                      updateShoppingForm('quantity', event.target.value)
-                    }
+                    onChange={(event) => updateShoppingForm('quantity', event.target.value)}
                     placeholder="לדוגמה: תבנית אחת"
                   />
                 </label>
@@ -297,9 +346,7 @@ export function ShoppingPage() {
                   <input
                     className="field__input"
                     value={shoppingForm.category}
-                    onChange={(event) =>
-                      updateShoppingForm('category', event.target.value)
-                    }
+                    onChange={(event) => updateShoppingForm('category', event.target.value)}
                     placeholder="לדוגמה: מזון"
                   />
                 </label>
@@ -311,10 +358,7 @@ export function ShoppingPage() {
                   className="field__input"
                   value={shoppingForm.status}
                   onChange={(event) =>
-                    updateShoppingForm(
-                      'status',
-                      event.target.value as ShoppingItemStatus,
-                    )
+                    updateShoppingForm('status', event.target.value as ShoppingItemStatus)
                   }
                 >
                   {shoppingStatusOptions.map((status) => (
@@ -338,12 +382,101 @@ export function ShoppingPage() {
                   ביטול
                 </button>
                 <button type="submit" className="btn btn--primary">
-                  שמירת פריט
+                  {editingItem ? 'שמירת שינויים' : 'שמירת פריט'}
                 </button>
               </div>
             </form>
           </section>
         </div>
+      ) : null}
+
+      {selectedItem ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="shopping-modal card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shopping-details-title"
+          >
+            <div className="shopping-modal__head">
+              <div>
+                <p className="shopping-hero__eyebrow">פרטי פריט</p>
+                <h2 id="shopping-details-title">{selectedItem.item_name}</h2>
+                <p>נוסף בתאריך {selectedItem.created_at}</p>
+              </div>
+              <button type="button" className="btn-text" onClick={() => setSelectedItem(null)}>
+                סגירה
+              </button>
+            </div>
+
+            <div className="expense-detail">
+              <div className="expense-detail__facts">
+                <div>
+                  <span>כמות</span>
+                  <strong>{selectedItem.quantity ?? 'לא צוינה'}</strong>
+                </div>
+                <div>
+                  <span>קטגוריה</span>
+                  <strong>{selectedItem.category ?? 'ללא קטגוריה'}</strong>
+                </div>
+                <div>
+                  <span>סטטוס</span>
+                  <strong>
+                    {shoppingStatusOptions.find((option) => option.value === selectedItem.status)
+                      ?.label ?? selectedItem.status}
+                  </strong>
+                </div>
+              </div>
+
+              <label className="shopping-status-control">
+                <span>עדכון סטטוס</span>
+                <select
+                  value={selectedItem.status}
+                  onChange={(event) =>
+                    updateItemStatus(
+                      selectedItem.id,
+                      event.target.value as ShoppingItemStatus,
+                    )
+                  }
+                >
+                  {shoppingStatusOptions.map((status) => (
+                    <option key={status.value} value={status.value}>
+                      {status.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="expense-form__actions">
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => openEditItemModal(selectedItem)}
+                >
+                  עריכה
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--danger"
+                  onClick={() => setItemToDelete(selectedItem)}
+                >
+                  מחיקה
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {itemToDelete ? (
+        <ConfirmDialog
+          title="למחוק את הפריט?"
+          message="הפריט יוסר מרשימת הקניות ולא יופיע עוד."
+          confirmLabel="מחיקה"
+          cancelLabel="ביטול"
+          onConfirm={confirmDeleteItem}
+          onCancel={() => setItemToDelete(null)}
+        />
       ) : null}
     </div>
   )

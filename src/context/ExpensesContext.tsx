@@ -5,10 +5,12 @@ import {
   useContext,
   useMemo,
   useRef,
-  useState,
   type ReactNode,
 } from 'react'
-import { mockExpenses, mockPayments } from '../data/mock'
+import {
+  useExpensesStore,
+  usePaymentsStore,
+} from '../data/repositories/financeRepository'
 import type { Expense, Payment } from '../types/models'
 
 interface NewExpenseInput {
@@ -21,8 +23,25 @@ interface NewExpenseInput {
   participant_ids: number[]
 }
 
+interface UpdateExpenseInput {
+  paid_by: number
+  amount: string
+  description: string
+  category: string | null
+  date: string
+  participant_ids: number[]
+}
+
 interface NewPaymentInput {
   apartment_id: number
+  payer_id: number
+  payee_id: number
+  amount: string
+  created_at: string
+  note?: string | null
+}
+
+interface UpdatePaymentInput {
   payer_id: number
   payee_id: number
   amount: string
@@ -41,7 +60,11 @@ interface ExpensesState {
   expenses: Expense[]
   payments: Payment[]
   addExpense: (expense: NewExpenseInput) => Expense
+  updateExpense: (expenseId: number, expense: UpdateExpenseInput) => Expense | null
   addPayment: (payment: NewPaymentInput) => Payment
+  updatePayment: (paymentId: number, payment: UpdatePaymentInput) => Payment | null
+  deleteExpense: (expenseId: number) => void
+  deletePayment: (paymentId: number) => void
   settlements: BalanceSettlement[]
   netBalanceByUser: Record<number, number>
 }
@@ -117,10 +140,10 @@ function calculateBalances(expenses: Expense[], payments: Payment[]) {
 }
 
 export function ExpensesProvider({ children }: { children: ReactNode }) {
-  const [expenses, setExpenses] = useState<Expense[]>(mockExpenses)
-  const [payments, setPayments] = useState<Payment[]>(mockPayments)
-  const nextExpenseId = useRef(Math.max(...mockExpenses.map((expense) => expense.id), 0) + 1)
-  const nextPaymentId = useRef(Math.max(...mockPayments.map((payment) => payment.id), 0) + 1)
+  const [expenses, setExpenses] = useExpensesStore()
+  const [payments, setPayments] = usePaymentsStore()
+  const nextExpenseId = useRef(Math.max(...expenses.map((expense) => expense.id), 0) + 1)
+  const nextPaymentId = useRef(Math.max(...payments.map((payment) => payment.id), 0) + 1)
 
   const addExpense = useCallback((expense: NewExpenseInput) => {
     const nextExpense: Expense = {
@@ -146,6 +169,56 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
     return nextPayment
   }, [])
 
+  const updatePayment = useCallback((paymentId: number, payment: UpdatePaymentInput) => {
+    let updatedPayment: Payment | null = null
+
+    setPayments((current) =>
+      current.map((item) => {
+        if (item.id !== paymentId) return item
+        updatedPayment = {
+          ...item,
+          ...payment,
+        }
+        return updatedPayment
+      }),
+    )
+
+    return updatedPayment
+  }, [])
+
+  const updateExpense = useCallback((expenseId: number, expense: UpdateExpenseInput) => {
+    let updatedExpense: Expense | null = null
+
+    setExpenses((current) =>
+      current.map((item) => {
+        if (item.id !== expenseId) return item
+        updatedExpense = {
+          ...item,
+          ...expense,
+        }
+        return updatedExpense
+      }),
+    )
+
+    return updatedExpense
+  }, [])
+
+  const deleteExpense = useCallback((expenseId: number) => {
+    setExpenses((current) =>
+      current.map((expense) =>
+        expense.id === expenseId ? { ...expense, status: 'deleted' } : expense,
+      ),
+    )
+  }, [])
+
+  const deletePayment = useCallback((paymentId: number) => {
+    setPayments((current) =>
+      current.map((payment) =>
+        payment.id === paymentId ? { ...payment, status: 'cancelled' } : payment,
+      ),
+    )
+  }, [])
+
   const { netBalanceByUser, settlements } = useMemo(
     () => calculateBalances(expenses, payments),
     [expenses, payments],
@@ -155,11 +228,26 @@ export function ExpensesProvider({ children }: { children: ReactNode }) {
       expenses,
       payments,
       addExpense,
+      updateExpense,
       addPayment,
+      updatePayment,
+      deleteExpense,
+      deletePayment,
       settlements,
       netBalanceByUser,
     }),
-    [expenses, payments, addExpense, addPayment, settlements, netBalanceByUser],
+    [
+      expenses,
+      payments,
+      addExpense,
+      updateExpense,
+      addPayment,
+      updatePayment,
+      deleteExpense,
+      deletePayment,
+      settlements,
+      netBalanceByUser,
+    ],
   )
 
   return <ExpensesContext.Provider value={value}>{children}</ExpensesContext.Provider>

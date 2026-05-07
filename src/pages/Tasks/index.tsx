@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { TaskStatusChip } from '../../components/StatusChip'
+import { useApartment } from '../../context/ApartmentContext'
 import { useAuth } from '../../context/AuthContext'
 import {
   getTodayDate,
@@ -8,8 +10,7 @@ import {
   isTaskOverdue,
   useTasks,
 } from '../../context/TasksContext'
-import { mockUsers, userById } from '../../data/mock'
-import type { TaskStatus } from '../../types/models'
+import type { Task, TaskStatus } from '../../types/models'
 
 interface TaskFormState {
   title: string
@@ -25,11 +26,13 @@ const taskStatusOptions: { value: TaskStatus; label: string }[] = [
   { value: 'cancelled', label: 'בוטלה' },
 ]
 
-const initialTaskForm: TaskFormState = {
-  title: '',
-  assigneeId: '1',
-  dueDate: '2026-04-11',
-  status: 'open',
+function createInitialTaskForm(defaultAssigneeId?: number): TaskFormState {
+  return {
+    title: '',
+    assigneeId: defaultAssigneeId ? String(defaultAssigneeId) : '',
+    dueDate: new Date().toISOString().slice(0, 10),
+    status: 'open',
+  }
 }
 
 function formatTaskDate(date: string) {
@@ -40,25 +43,65 @@ function formatTaskDate(date: string) {
   }).format(new Date(date))
 }
 
+function buildFormFromTask(task: Task): TaskFormState {
+  return {
+    title: task.title,
+    assigneeId: String(task.assignee_id ?? ''),
+    dueDate: task.due_date ?? '',
+    status: task.status,
+  }
+}
+
 export function TasksPage() {
   const { user } = useAuth()
-  const { tasks, addTask, updateTaskStatus } = useTasks()
+  const { current } = useApartment()
+  const apartmentId = current?.apartment.id ?? 0
+  const roommates = useMemo(
+    () => (current?.roommates ?? []).filter((roommate) => roommate.status === 'active'),
+    [current],
+  )
+  const getUserName = (userId: number | null) =>
+    roommates.find((roommate) => roommate.id === userId)?.name
+  const { tasks, addTask, updateTask, deleteTask } = useTasks()
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false)
-  const [taskForm, setTaskForm] = useState<TaskFormState>(initialTaskForm)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [taskToDelete, setTaskToDelete] = useState<number | null>(null)
+  const [taskForm, setTaskForm] = useState<TaskFormState>(() =>
+    createInitialTaskForm(roommates[0]?.id),
+  )
   const [formError, setFormError] = useState('')
+
   const today = getTodayDate()
-  const myOpenTasks = tasks.filter(
+  const apartmentTasks = tasks.filter((task) => task.apartment_id === apartmentId)
+  const myOpenTasks = apartmentTasks.filter(
     (task) => task.assignee_id === user?.id && isTaskIncomplete(task),
   )
-  const overdueTasks = tasks.filter((task) => isTaskOverdue(task, today))
+  const overdueTasks = apartmentTasks.filter((task) => isTaskOverdue(task, today))
 
   function updateTaskForm(field: keyof TaskFormState, value: string) {
-    setTaskForm((current) => ({ ...current, [field]: value }))
+    setTaskForm((currentForm) => ({ ...currentForm, [field]: value }))
+  }
+
+  function openAddTaskModal() {
+    setEditingTask(null)
+    setTaskForm(createInitialTaskForm(roommates[0]?.id))
+    setFormError('')
+    setIsTaskModalOpen(true)
+  }
+
+  function openEditTaskModal(task: Task) {
+    setSelectedTask(null)
+    setEditingTask(task)
+    setTaskForm(buildFormFromTask(task))
+    setFormError('')
+    setIsTaskModalOpen(true)
   }
 
   function closeTaskModal() {
     setIsTaskModalOpen(false)
-    setTaskForm(initialTaskForm)
+    setEditingTask(null)
+    setTaskForm(createInitialTaskForm(roommates[0]?.id))
     setFormError('')
   }
 
@@ -81,27 +124,43 @@ export function TasksPage() {
       return
     }
 
-    addTask({
-      title: taskForm.title.trim(),
-      assignee_id: Number(taskForm.assigneeId),
-      due_date: taskForm.dueDate,
-      status: taskForm.status,
-      created_by: user?.id ?? 1,
-    })
+    if (editingTask) {
+      const updatedTask = updateTask(editingTask.id, {
+        title: taskForm.title.trim(),
+        assignee_id: Number(taskForm.assigneeId),
+        due_date: taskForm.dueDate,
+        status: taskForm.status,
+      })
+      if (updatedTask) setSelectedTask(updatedTask)
+    } else {
+      addTask({
+        apartment_id: apartmentId,
+        title: taskForm.title.trim(),
+        assignee_id: Number(taskForm.assigneeId),
+        due_date: taskForm.dueDate,
+        status: taskForm.status,
+        created_by: user?.id ?? 0,
+      })
+    }
+
     closeTaskModal()
+  }
+
+  function confirmDeleteTask() {
+    if (taskToDelete == null) return
+    deleteTask(taskToDelete)
+    if (selectedTask?.id === taskToDelete) setSelectedTask(null)
+    if (editingTask?.id === taskToDelete) closeTaskModal()
+    setTaskToDelete(null)
   }
 
   return (
     <div className="page tasks-page">
       <div className="page__head tasks-hero">
-        <div>
-          <p className="tasks-hero__eyebrow">מטלות</p>
-          <h1 className="page__title">מה צריך לעשות?</h1>
-        </div>
         <button
           type="button"
           className="btn btn--primary tasks-hero__action"
-          onClick={() => setIsTaskModalOpen(true)}
+          onClick={openAddTaskModal}
         >
           + מטלה חדשה
         </button>
@@ -114,9 +173,7 @@ export function TasksPage() {
         </Card>
         <Card>
           <p className="tasks-summary__label">מטלות באיחור בדירה</p>
-          <p className="tasks-summary__value tasks-summary__value--danger">
-            {overdueTasks.length}
-          </p>
+          <p className="tasks-summary__value tasks-summary__value--danger">{overdueTasks.length}</p>
         </Card>
       </section>
 
@@ -140,80 +197,54 @@ export function TasksPage() {
           <p className="muted">אין מטלות באיחור.</p>
         ) : (
           <ul className="task-list task-list--compact">
-            {overdueTasks.map((task) => {
-              const assignee = task.assignee_id ? userById(task.assignee_id) : null
-
-              return (
-                <li key={task.id} className="task-list__item">
-                  <div>
-                    <span className="task-list__title">{task.title}</span>
-                    <div className="task-list__meta">
-                      {assignee?.name ?? 'לא הוגדר'} · יעד:{' '}
-                      {task.due_date ? formatTaskDate(task.due_date) : 'לא נקבע'}
-                    </div>
+            {overdueTasks.map((task) => (
+              <li key={task.id} className="task-list__item">
+                <div>
+                  <span className="task-list__title">{task.title}</span>
+                  <div className="task-list__meta">
+                    {getUserName(task.assignee_id) ?? 'לא הוגדר'} · יעד:{' '}
+                    {task.due_date ? formatTaskDate(task.due_date) : 'לא נקבע'}
                   </div>
-                  <TaskStatusChip status={task.status} />
-                </li>
-              )
-            })}
+                </div>
+                <TaskStatusChip status={task.status} />
+              </li>
+            ))}
           </ul>
         )}
       </Card>
 
       <Card title="מטלות הדירה">
         <ul className="task-list task-list--cards">
-          {tasks.map((task) => {
-            const assignee = task.assignee_id ? userById(task.assignee_id) : null
-
-            return (
-              <li key={task.id} className="task-list__item task-item-card">
+          {apartmentTasks.map((task) => (
+            <li key={task.id} className="task-list__item task-item-card">
+              <button
+                type="button"
+                className="expense-item-card__button"
+                onClick={() => setSelectedTask(task)}
+              >
                 <div className="task-item-card__main">
                   <div className="task-list__title">{task.title}</div>
                   <div className="task-list__meta">
-                    <span>אחראי: {assignee?.name ?? 'לא הוגדר'}</span>
-                    <span>
-                      יעד:{' '}
-                      {task.due_date ? formatTaskDate(task.due_date) : 'לא נקבע'}
-                    </span>
+                    <span>אחראי: {getUserName(task.assignee_id) ?? 'לא הוגדר'}</span>
+                    <span>יעד: {task.due_date ? formatTaskDate(task.due_date) : 'לא נקבע'}</span>
                   </div>
                 </div>
                 <div className="task-item-card__status">
                   <TaskStatusChip status={task.status} />
-                  <label className="task-status-control">
-                    <span>עדכון סטטוס</span>
-                    <select
-                      value={task.status}
-                      onChange={(event) =>
-                        updateTaskStatus(task.id, event.target.value as TaskStatus)
-                      }
-                    >
-                      {taskStatusOptions.map((status) => (
-                        <option key={status.value} value={status.value}>
-                          {status.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
                 </div>
-              </li>
-            )
-          })}
+              </button>
+            </li>
+          ))}
         </ul>
       </Card>
 
       {isTaskModalOpen ? (
         <div className="modal-backdrop" role="presentation">
-          <section
-            className="task-modal card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-task-title"
-          >
+          <section className="task-modal card" role="dialog" aria-modal="true" aria-labelledby="add-task-title">
             <div className="task-modal__head">
               <div>
-                <p className="tasks-hero__eyebrow">מטלה חדשה</p>
-                <h2 id="add-task-title">מה צריך לעשות?</h2>
-                <p>הוספת מטלה נשמרת כרגע רק ברשימת הדמו המקומית.</p>
+                <p className="tasks-hero__eyebrow">{editingTask ? 'עריכת מטלה' : 'מטלה חדשה'}</p>
+                <h2 id="add-task-title">{editingTask ? 'עדכון מטלה' : 'מה צריך לעשות?'}</h2>
               </div>
               <button type="button" className="btn-text" onClick={closeTaskModal}>
                 סגירה
@@ -223,23 +254,14 @@ export function TasksPage() {
             <form className="task-form" onSubmit={handleAddTask} noValidate>
               <label className="field">
                 <span className="field__label">שם המטלה</span>
-                <input
-                  className="field__input"
-                  value={taskForm.title}
-                  onChange={(event) => updateTaskForm('title', event.target.value)}
-                  placeholder="לדוגמה: ניקיון סלון"
-                />
+                <input className="field__input" value={taskForm.title} onChange={(event) => updateTaskForm('title', event.target.value)} />
               </label>
 
               <div className="task-form__grid">
                 <label className="field">
                   <span className="field__label">אחראי</span>
-                  <select
-                    className="field__input"
-                    value={taskForm.assigneeId}
-                    onChange={(event) => updateTaskForm('assigneeId', event.target.value)}
-                  >
-                    {mockUsers.map((roommate) => (
+                  <select className="field__input" value={taskForm.assigneeId} onChange={(event) => updateTaskForm('assigneeId', event.target.value)}>
+                    {roommates.map((roommate) => (
                       <option key={roommate.id} value={roommate.id}>
                         {roommate.name}
                       </option>
@@ -249,25 +271,13 @@ export function TasksPage() {
 
                 <label className="field">
                   <span className="field__label">תאריך יעד</span>
-                  <input
-                    className="field__input"
-                    type="date"
-                    dir="ltr"
-                    value={taskForm.dueDate}
-                    onChange={(event) => updateTaskForm('dueDate', event.target.value)}
-                  />
+                  <input className="field__input" type="date" dir="ltr" value={taskForm.dueDate} onChange={(event) => updateTaskForm('dueDate', event.target.value)} />
                 </label>
               </div>
 
               <label className="field">
                 <span className="field__label">סטטוס</span>
-                <select
-                  className="field__input"
-                  value={taskForm.status}
-                  onChange={(event) =>
-                    updateTaskForm('status', event.target.value as TaskStatus)
-                  }
-                >
+                <select className="field__input" value={taskForm.status} onChange={(event) => updateTaskForm('status', event.target.value as TaskStatus)}>
                   {taskStatusOptions.map((status) => (
                     <option key={status.value} value={status.value}>
                       {status.label}
@@ -276,21 +286,69 @@ export function TasksPage() {
                 </select>
               </label>
 
-              {formError ? (
-                <p className="form-message form-message--error">{formError}</p>
-              ) : null}
+              {formError ? <p className="form-message form-message--error">{formError}</p> : null}
 
               <div className="task-form__actions">
                 <button type="button" className="btn btn--secondary" onClick={closeTaskModal}>
                   ביטול
                 </button>
                 <button type="submit" className="btn btn--primary">
-                  שמירת מטלה
+                  {editingTask ? 'שמירת שינויים' : 'שמירת מטלה'}
                 </button>
               </div>
             </form>
           </section>
         </div>
+      ) : null}
+
+      {selectedTask ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="task-modal card" role="dialog" aria-modal="true" aria-labelledby="task-details-title">
+            <div className="task-modal__head">
+              <div>
+                <p className="tasks-hero__eyebrow">פרטי מטלה</p>
+                <h2 id="task-details-title">{selectedTask.title}</h2>
+                <p>יעד: {selectedTask.due_date ? formatTaskDate(selectedTask.due_date) : 'לא נקבע'}</p>
+              </div>
+              <button type="button" className="btn-text" onClick={() => setSelectedTask(null)}>
+                סגירה
+              </button>
+            </div>
+
+            <div className="expense-detail">
+              <div className="expense-detail__facts">
+                <div>
+                  <span>אחראי</span>
+                  <strong>{getUserName(selectedTask.assignee_id) ?? 'לא הוגדר'}</strong>
+                </div>
+                <div>
+                  <span>סטטוס</span>
+                  <strong>{taskStatusOptions.find((option) => option.value === selectedTask.status)?.label ?? selectedTask.status}</strong>
+                </div>
+              </div>
+
+              <div className="expense-form__actions">
+                <button type="button" className="btn btn--secondary" onClick={() => openEditTaskModal(selectedTask)}>
+                  עריכה
+                </button>
+                <button type="button" className="btn btn--danger" onClick={() => setTaskToDelete(selectedTask.id)}>
+                  מחיקה
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {taskToDelete != null ? (
+        <ConfirmDialog
+          title="למחוק את המטלה?"
+          message="המטלה תוסר מרשימת המטלות ולא תופיע עוד בדירה."
+          confirmLabel="מחיקה"
+          cancelLabel="ביטול"
+          onConfirm={confirmDeleteTask}
+          onCancel={() => setTaskToDelete(null)}
+        />
       ) : null}
     </div>
   )

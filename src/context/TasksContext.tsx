@@ -4,13 +4,13 @@ import {
   useCallback,
   useContext,
   useMemo,
-  useState,
   type ReactNode,
 } from 'react'
-import { mockTasks } from '../data/mock'
+import { useTasksStore } from '../data/repositories/tasksRepository'
 import type { Task, TaskStatus } from '../types/models'
 
 interface NewTaskInput {
+  apartment_id: number
   title: string
   assignee_id: number
   due_date: string
@@ -18,10 +18,19 @@ interface NewTaskInput {
   created_by: number
 }
 
+interface UpdateTaskInput {
+  title: string
+  assignee_id: number
+  due_date: string
+  status: TaskStatus
+}
+
 interface TasksState {
   tasks: Task[]
   addTask: (task: NewTaskInput) => void
+  updateTask: (taskId: number, task: UpdateTaskInput) => Task | null
   updateTaskStatus: (taskId: number, status: TaskStatus) => void
+  deleteTask: (taskId: number) => void
 }
 
 const TasksContext = createContext<TasksState | null>(null)
@@ -39,13 +48,13 @@ export function isTaskOverdue(task: Task, today = getTodayDate()) {
 }
 
 export function TasksProvider({ children }: { children: ReactNode }) {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks)
+  const [tasks, setTasks] = useTasksStore()
 
   const addTask = useCallback((task: NewTaskInput) => {
     setTasks((current) => [
       {
         id: Math.max(...current.map((item) => item.id), 0) + 1,
-        apartment_id: 1,
+        apartment_id: task.apartment_id,
         title: task.title,
         description: null,
         assignee_id: task.assignee_id,
@@ -63,9 +72,33 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  const updateTask = useCallback((taskId: number, task: UpdateTaskInput) => {
+    let updatedTask: Task | null = null
+
+    setTasks((current) =>
+      current.map((item) => {
+        if (item.id !== taskId) return item
+        updatedTask = {
+          ...item,
+          title: task.title,
+          assignee_id: task.assignee_id,
+          due_date: task.due_date,
+          status: task.status,
+        }
+        return updatedTask
+      }),
+    )
+
+    return updatedTask
+  }, [])
+
+  const deleteTask = useCallback((taskId: number) => {
+    setTasks((current) => current.filter((task) => task.id !== taskId))
+  }, [])
+
   const value = useMemo(
-    () => ({ tasks, addTask, updateTaskStatus }),
-    [tasks, addTask, updateTaskStatus],
+    () => ({ tasks, addTask, updateTask, updateTaskStatus, deleteTask }),
+    [tasks, addTask, updateTask, updateTaskStatus, deleteTask],
   )
 
   return <TasksContext.Provider value={value}>{children}</TasksContext.Provider>

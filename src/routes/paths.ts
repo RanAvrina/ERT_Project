@@ -10,6 +10,7 @@ export const appRoutes = {
   shopping: '/shopping',
   tickets: '/tickets',
   roommates: '/roommates',
+  apartmentInfo: '/roommates/apartment-info',
 } as const
 
 export function ticketDetailsPath(id: number | string) {

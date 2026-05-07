@@ -1,37 +1,29 @@
 import { useState, type FormEvent } from 'react'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useApartment } from '../../context/ApartmentContext'
 import { useAuth } from '../../context/AuthContext'
-import { mockUsers } from '../../data/mock'
 
 export function RoommatesPage() {
   const { user } = useAuth()
-  const { current, addRoommate, removeRoommate, addLandlord } = useApartment()
-  const [isModalOpen, setIsModalOpen] = useState(false)
+  const { current, removeRoommate, addLandlord } = useApartment()
   const [isLandlordModalOpen, setIsLandlordModalOpen] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
-  const [form, setForm] = useState({ name: '', phone: '', email: '' })
   const [landlordForm, setLandlordForm] = useState({
     name: '',
     phone: '',
     email: '',
   })
-  const [errors, setErrors] = useState({ name: '', phone: '', email: '' })
   const [landlordError, setLandlordError] = useState('')
   const [landlordInviteLink, setLandlordInviteLink] = useState('')
   const [landlordInviteStatus, setLandlordInviteStatus] = useState('')
   const [inviteLink, setInviteLink] = useState('')
   const [inviteStatus, setInviteStatus] = useState('')
-  const roommates = (current?.roommates ?? mockUsers).filter(
-    (u) => u.status === 'active',
+  const [roommateToRemove, setRoommateToRemove] = useState<number | null>(null)
+  const roommates = (current?.roommates ?? []).filter(
+    (roommate) => roommate.status === 'active',
   )
   const isAdmin = user?.role === 'admin'
-
-  function closeModal() {
-    setIsModalOpen(false)
-    setForm({ name: '', phone: '', email: '' })
-    setErrors({ name: '', phone: '', email: '' })
-  }
 
   function closeLandlordModal() {
     setIsLandlordModalOpen(false)
@@ -46,7 +38,7 @@ export function RoommatesPage() {
     setInviteStatus('')
   }
 
-  function buildInviteLink() {
+  function buildInviteLink(role: 'tenant' | 'landlord' = 'tenant') {
     const base =
       typeof window !== 'undefined' && window.location.origin
         ? window.location.origin
@@ -55,29 +47,14 @@ export function RoommatesPage() {
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `invite-${Date.now()}`
-    const apartmentId = current?.apartment.id ?? 1
-    return `${base}/invite/${apartmentId}?token=${token}`
-  }
-
-  function buildLandlordInviteLink() {
-    const base =
-      typeof window !== 'undefined' && window.location.origin
-        ? window.location.origin
-        : 'https://ert.app'
-    const token =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `invite-${Date.now()}`
-    const apartmentId = current?.apartment.id ?? 1
-    return `${base}/invite/${apartmentId}?role=landlord&token=${token}`
+    const apartmentId = current?.apartment.id ?? 0
+    return `${base}/invite/${apartmentId}?role=${role}&token=${token}`
   }
 
   function openInviteModal() {
     setIsInviteOpen(true)
     setInviteStatus('')
-    if (!inviteLink) {
-      setInviteLink(buildInviteLink())
-    }
+    setInviteLink(buildInviteLink('tenant'))
   }
 
   async function onCopyInvite() {
@@ -96,47 +73,6 @@ export function RoommatesPage() {
     } catch {
       setLandlordInviteStatus('לא הצלחנו להעתיק. אפשר לבחור ולהעתיק ידנית.')
     }
-  }
-
-  function validateRoommate() {
-    const nextErrors = { name: '', phone: '', email: '' }
-    const name = form.name.trim()
-    const phone = form.phone.trim()
-    const email = form.email.trim()
-    const phoneDigits = phone.replace(/\D/g, '')
-    const isPhoneValid = phoneDigits.length >= 9 && phoneDigits.length <= 10
-    const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-
-    if (!name) {
-      nextErrors.name = 'חובה למלא שם מלא.'
-    }
-
-    if (!phone) {
-      nextErrors.phone = 'נדרש מספר טלפון.'
-    } else if (!isPhoneValid) {
-      nextErrors.phone = 'מספר הטלפון לא תקין.'
-    }
-
-    if (!email) {
-      nextErrors.email = 'נדרשת כתובת אימייל.'
-    } else if (!isEmailValid) {
-      nextErrors.email = 'כתובת האימייל לא תקינה.'
-    }
-
-    setErrors(nextErrors)
-    return !nextErrors.name && !nextErrors.phone && !nextErrors.email
-  }
-
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!validateRoommate()) return
-
-    addRoommate({
-      name: form.name,
-      phone: form.phone,
-      email: form.email,
-    })
-    closeModal()
   }
 
   function onLandlordSubmit(event: FormEvent<HTMLFormElement>) {
@@ -164,8 +100,14 @@ export function RoommatesPage() {
       phone: landlordForm.phone,
       email: landlordForm.email,
     })
-    setLandlordInviteLink(buildLandlordInviteLink())
+    setLandlordInviteLink(buildInviteLink('landlord'))
     setLandlordInviteStatus('הזמנת בעל הדירה מוכנה לשיתוף.')
+  }
+
+  function confirmRemoveRoommate() {
+    if (roommateToRemove == null) return
+    removeRoommate(roommateToRemove)
+    setRoommateToRemove(null)
   }
 
   return (
@@ -180,16 +122,9 @@ export function RoommatesPage() {
               <button
                 type="button"
                 className="btn btn--secondary btn--small"
-                onClick={() => setIsModalOpen(true)}
-              >
-                הוספת דייר
-              </button>
-              <button
-                type="button"
-                className="btn btn--secondary btn--small"
                 onClick={openInviteModal}
               >
-                קישור הזמנה
+                הזמנת דייר
               </button>
               <button
                 type="button"
@@ -203,21 +138,21 @@ export function RoommatesPage() {
         }
       >
         <ul className="roommate-list">
-          {roommates.map((u) => (
-            <li key={u.id} className="roommate-list__item">
+          {roommates.map((roommate) => (
+            <li key={roommate.id} className="roommate-list__item">
               <div className="roommate-list__main">
-                <div className="roommate-list__name">{u.name}</div>
-                <div className="roommate-list__meta">{u.email}</div>
+                <div className="roommate-list__name">{roommate.name}</div>
+                <div className="roommate-list__meta">{roommate.email}</div>
               </div>
               <div className="roommate-list__aside">
                 <span className="chip chip--primary">
-                  {u.role === 'admin' ? 'דייר מנהל' : 'דייר'}
+                  {roommate.role === 'admin' ? 'דייר מנהל' : 'דייר'}
                 </span>
-                {isAdmin && u.role !== 'admin' ? (
+                {isAdmin && roommate.role !== 'admin' ? (
                   <button
                     type="button"
                     className="btn-text btn-text--danger"
-                    onClick={() => removeRoommate(u.id)}
+                    onClick={() => setRoommateToRemove(roommate.id)}
                   >
                     הסרה
                   </button>
@@ -247,86 +182,6 @@ export function RoommatesPage() {
         )}
       </Card>
 
-      {isAdmin && isModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="roommate-modal card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-roommate-title"
-          >
-            <div className="roommate-modal__head">
-              <div>
-                <p className="tickets-hero__eyebrow">דייר חדש</p>
-                <h2 id="add-roommate-title">הוספת דייר לדירה</h2>
-                <p>הדייר יתווסף כשותף רגיל.</p>
-              </div>
-              <button type="button" className="btn-text" onClick={closeModal}>
-                סגירה
-              </button>
-            </div>
-
-            <form className="roommate-form" onSubmit={onSubmit} noValidate>
-              <label className="field">
-                <span className="field__label">שם מלא</span>
-                <input
-                  className="field__input"
-                  type="text"
-                  value={form.name}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, name: event.target.value }))
-                  }
-                  placeholder="שם פרטי ושם משפחה"
-                />
-                {errors.name ? (
-                  <span className="field__error">{errors.name}</span>
-                ) : null}
-              </label>
-              <label className="field">
-                <span className="field__label">מספר טלפון</span>
-                <input
-                  className="field__input"
-                  type="tel"
-                  dir="ltr"
-                  value={form.phone}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, phone: event.target.value }))
-                  }
-                  placeholder="050-123-4567"
-                />
-                {errors.phone ? (
-                  <span className="field__error">{errors.phone}</span>
-                ) : null}
-              </label>
-              <label className="field">
-                <span className="field__label">כתובת אימייל</span>
-                <input
-                  className="field__input"
-                  type="email"
-                  dir="ltr"
-                  value={form.email}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, email: event.target.value }))
-                  }
-                  placeholder="name@example.com"
-                />
-                {errors.email ? (
-                  <span className="field__error">{errors.email}</span>
-                ) : null}
-              </label>
-              <div className="roommate-form__actions">
-                <button type="button" className="btn btn--secondary" onClick={closeModal}>
-                  ביטול
-                </button>
-                <button type="submit" className="btn btn--primary">
-                  הוספת דייר
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
-
       {isAdmin && isLandlordModalOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section
@@ -354,8 +209,8 @@ export function RoommatesPage() {
                   type="text"
                   value={landlordForm.name}
                   onChange={(event) =>
-                    setLandlordForm((current) => ({
-                      ...current,
+                    setLandlordForm((currentForm) => ({
+                      ...currentForm,
                       name: event.target.value,
                     }))
                   }
@@ -370,8 +225,8 @@ export function RoommatesPage() {
                   dir="ltr"
                   value={landlordForm.phone}
                   onChange={(event) =>
-                    setLandlordForm((current) => ({
-                      ...current,
+                    setLandlordForm((currentForm) => ({
+                      ...currentForm,
                       phone: event.target.value,
                     }))
                   }
@@ -386,8 +241,8 @@ export function RoommatesPage() {
                   dir="ltr"
                   value={landlordForm.email}
                   onChange={(event) =>
-                    setLandlordForm((current) => ({
-                      ...current,
+                    setLandlordForm((currentForm) => ({
+                      ...currentForm,
                       email: event.target.value,
                     }))
                   }
@@ -451,8 +306,8 @@ export function RoommatesPage() {
             <div className="roommate-modal__head">
               <div>
                 <p className="tickets-hero__eyebrow">הזמנה</p>
-                <h2 id="invite-title">קישור הצטרפות לדירה</h2>
-                <p>שתפו את הקישור עם דייר חדש.</p>
+                <h2 id="invite-title">הזמנת דייר חדש</h2>
+                <p>שתפו את הקישור והדייר יצטרף דרך התחברות או הרשמה.</p>
               </div>
               <button type="button" className="btn-text" onClick={closeInviteModal}>
                 סגירה
@@ -463,7 +318,9 @@ export function RoommatesPage() {
               <label className="field">
                 <span className="field__label">קישור הזמנה</span>
                 <input className="field__input" type="text" readOnly value={inviteLink} />
-                <span className="field__hint">הקישור תקף לדירה הנוכחית.</span>
+                <span className="field__hint">
+                  הקישור ישייך את הדייר לדירה הנוכחית אחרי התחברות או הרשמה.
+                </span>
               </label>
               {inviteStatus ? (
                 <p className="form-message form-message--success">{inviteStatus}</p>
@@ -479,6 +336,17 @@ export function RoommatesPage() {
             </div>
           </section>
         </div>
+      ) : null}
+
+      {roommateToRemove != null ? (
+        <ConfirmDialog
+          title="להסיר את הדייר מהדירה?"
+          message="הדייר יוסר מרשימת הדיירים הפעילים ויצטרך להצטרף מחדש דרך קישור הזמנה אם יהיה צורך."
+          confirmLabel="הסרה"
+          cancelLabel="ביטול"
+          onConfirm={confirmRemoveRoommate}
+          onCancel={() => setRoommateToRemove(null)}
+        />
       ) : null}
     </div>
   )

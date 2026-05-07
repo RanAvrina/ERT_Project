@@ -3,24 +3,28 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from 'react'
-import { mockUsers } from '../data/mock'
+import {
+  useAccountsStore,
+  useAuthSessionStore,
+} from '../data/repositories/authRepository'
 import { useApartment } from './ApartmentContext'
+import type { AccountIdentity, AuthResult } from '../types/auth'
 import type { User } from '../types/models'
 
-const storageKey = 'ert_demo_auth_user'
-
-interface AuthResult {
+interface AccountCreationResult {
   ok: boolean
   error: string
+  account?: AccountIdentity
 }
 
 interface LoginInput {
   email: string
   password: string
+  allowDetachedAccount?: boolean
 }
 
 interface RegisterInput {
@@ -28,19 +32,29 @@ interface RegisterInput {
   phone: string
   email: string
   password: string
+  role?: User['role']
+  attachToApartment?: boolean
+  signInAfterRegister?: boolean
 }
 
 interface AuthState {
   user: User | null
   login: (input: LoginInput) => AuthResult
   register: (input: RegisterInput) => AuthResult
+  createAccountIdentity: (input: RegisterInput) => AccountCreationResult
+  updateSessionUser: (user: User) => void
   logout: () => void
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase()
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { current, addUserAccount } = useApartment()
+  const { current, addUserAccount, addLandlord } = useApartment()
+  const [accounts, setAccounts] = useAccountsStore()
   const users = useMemo(
     () =>
       current
@@ -48,40 +62,102 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ...current.roommates,
             ...(current.landlordUser ? [current.landlordUser] : []),
           ]
-        : mockUsers,
+        : [],
     [current],
   )
-  const [user, setUser] = useState<User | null>(() => {
-    if (typeof window === 'undefined') return null
+  const [user, setUser] = useAuthSessionStore()
 
-    const storedUser = window.sessionStorage.getItem(storageKey)
-    if (storedUser) {
-      try {
-        return JSON.parse(storedUser) as User
-      } catch {
-        window.sessionStorage.removeItem(storageKey)
-      }
-    }
+  useEffect(() => {
+    if (!current?.credentialsByEmail) return
 
-    return null
-  })
+    const apartmentUsers = [
+      current.adminUser,
+      ...current.roommates,
+      ...(current.landlordUser ? [current.landlordUser] : []),
+    ]
+
+    setAccounts((existingAccounts) => {
+      let changed = false
+      const nextAccounts = [...existingAccounts]
+
+      Object.entries(current.credentialsByEmail).forEach(([email, password]) => {
+        const normalizedEmail = normalizeEmail(email)
+        const exists = nextAccounts.some(
+          (account) => normalizeEmail(account.email) === normalizedEmail,
+        )
+
+        if (exists) return
+
+        const matchedUser = apartmentUsers.find(
+          (candidate) => normalizeEmail(candidate.email) === normalizedEmail,
+        )
+
+        nextAccounts.unshift({
+          id: matchedUser?.id ?? Date.now() + nextAccounts.length,
+          name: matchedUser?.name ?? normalizedEmail,
+          email: normalizedEmail,
+          phone: '',
+          password,
+        })
+        changed = true
+      })
+
+      return changed ? nextAccounts : existingAccounts
+    })
+  }, [current, setAccounts])
 
   const persistUser = useCallback((nextUser: User | null) => {
     setUser(nextUser)
-
-    if (nextUser) {
-      window.sessionStorage.setItem(storageKey, JSON.stringify(nextUser))
-      window.sessionStorage.setItem('ert_demo_auth', '1')
-      return
-    }
-
-    window.sessionStorage.removeItem(storageKey)
-    window.sessionStorage.removeItem('ert_demo_auth')
   }, [])
 
+  const createAccountIdentity = useCallback(
+    ({ name, phone, email, password }: RegisterInput): AccountCreationResult => {
+      const normalizedEmail = normalizeEmail(email)
+
+      if (!name.trim()) {
+        return { ok: false, error: 'איך תרצו שהשם שלכם יופיע לשותפים?' }
+      }
+
+      if (!phone.trim()) {
+        return { ok: false, error: 'נדרש מספר טלפון כדי להשלים את ההרשמה.' }
+      }
+
+      if (!normalizedEmail) {
+        return { ok: false, error: 'נדרשת כתובת אימייל כדי ליצור חשבון.' }
+      }
+
+      if (password.trim().length < 6) {
+        return { ok: false, error: 'הסיסמה צריכה לכלול לפחות 6 תווים.' }
+      }
+
+      const existingAccount = accounts.find(
+        (account) => normalizeEmail(account.email) === normalizedEmail,
+      )
+
+      if (existingAccount) {
+        return {
+          ok: false,
+          error: 'כבר קיים חשבון עם כתובת המייל הזו.',
+        }
+      }
+
+      const nextAccount: AccountIdentity = {
+        id: Date.now(),
+        name: name.trim(),
+        email: normalizedEmail,
+        phone: phone.trim(),
+        password,
+      }
+
+      setAccounts((currentAccounts) => [nextAccount, ...currentAccounts])
+      return { ok: true, error: '', account: nextAccount }
+    },
+    [accounts, setAccounts],
+  )
+
   const login = useCallback(
-    ({ email, password }: LoginInput) => {
-      const normalizedEmail = email.trim().toLowerCase()
+    ({ email, password, allowDetachedAccount = false }: LoginInput) => {
+      const normalizedEmail = normalizeEmail(email)
 
       if (!normalizedEmail) {
         return { ok: false, error: 'נשמח לדעת עם איזו כתובת אימייל להתחבר.' }
@@ -91,25 +167,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: 'צריך להזין סיסמה כדי להמשיך.' }
       }
 
-      const matchedUser = users.find(
-        (u) => u.email.toLowerCase() === normalizedEmail,
+      const matchedMembership = users.find(
+        (candidate) => normalizeEmail(candidate.email) === normalizedEmail,
       )
-      if (!matchedUser) {
+      const matchedAccount = accounts.find(
+        (account) => normalizeEmail(account.email) === normalizedEmail,
+      )
+
+      if (!matchedAccount) {
         return {
           ok: false,
-          error:
-            'לא מצאנו חשבון דמו עם הכתובת הזו. אפשר לבחור חשבון מהרשימה או להירשם.',
+          error: 'לא מצאנו חשבון עם כתובת האימייל הזו.',
         }
       }
 
-      persistUser(matchedUser)
-      return { ok: true, error: '' }
+      if (matchedAccount.password !== password) {
+        return {
+          ok: false,
+          error: 'כתובת האימייל או הסיסמה לא נכונות.',
+        }
+      }
+
+      if (!matchedMembership && !allowDetachedAccount) {
+        return {
+          ok: false,
+          error:
+            'החשבון קיים, אבל לא משויך לדירה הפעילה. אפשר להצטרף דרך קישור הזמנה.',
+        }
+      }
+
+      const nextUser =
+        matchedMembership ??
+        ({
+          id: matchedAccount.id,
+          apartment_id: current?.apartment.id ?? 0,
+          name: matchedAccount.name,
+          email: matchedAccount.email,
+          role: 'tenant',
+          status: 'active',
+          joined_at: new Date().toISOString().slice(0, 10),
+        } satisfies User)
+
+      persistUser(nextUser)
+      return { ok: true, error: '', user: nextUser }
     },
-    [persistUser, users],
+    [accounts, current, persistUser, users],
   )
 
   const register = useCallback(
-    ({ name, phone, email, password }: RegisterInput) => {
+    ({
+      name,
+      phone,
+      email,
+      password,
+      role,
+      attachToApartment = false,
+      signInAfterRegister = attachToApartment,
+    }: RegisterInput) => {
       if (!name.trim()) {
         return { ok: false, error: 'איך תרצו שהשם שלכם יופיע לשותפים?' }
       }
@@ -126,35 +240,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: 'הסיסמה צריכה לכלול לפחות 6 תווים.' }
       }
 
+      const accountResult = createAccountIdentity({ name, phone, email, password, role })
+      if (!accountResult.ok || !accountResult.account) {
+        return {
+          ok: false,
+          error: accountResult.error || 'לא הצלחנו ליצור את החשבון.',
+        }
+      }
+
+      const account = accountResult.account
+      if (!attachToApartment) {
+        const detachedUser: User = {
+          id: account.id,
+          apartment_id: 0,
+          name: account.name,
+          email: account.email,
+          role: role ?? 'tenant',
+          status: 'active',
+          joined_at: new Date().toISOString().slice(0, 10),
+        }
+
+        if (signInAfterRegister) {
+          persistUser(detachedUser)
+        }
+
+        return { ok: true, error: '', user: detachedUser }
+      }
+
+      const createdUser =
+        role === 'landlord'
+          ? addLandlord({ userId: account.id, name, email, phone, password })
+          : addUserAccount({ userId: account.id, name, email, phone, password })
+
       const nextUser =
-        addUserAccount({
-          name,
-          email,
-          phone,
-        }) ??
+        createdUser ??
         ({
-          id: Date.now(),
-          apartment_id: 1,
+          id: account.id,
+          apartment_id: current?.apartment.id ?? 0,
           name: name.trim(),
-          email: email.trim().toLowerCase(),
-          role: 'tenant',
+          email: normalizeEmail(email),
+          role: role ?? 'tenant',
           status: 'active',
           joined_at: new Date().toISOString().slice(0, 10),
         } satisfies User)
 
-      persistUser(nextUser)
-      return { ok: true, error: '' }
+      if (signInAfterRegister) {
+        persistUser(nextUser)
+      }
+
+      return { ok: true, error: '', user: nextUser }
     },
-    [addUserAccount, persistUser],
+    [addLandlord, addUserAccount, createAccountIdentity, current, persistUser],
   )
 
   const logout = useCallback(() => {
     persistUser(null)
   }, [persistUser])
 
+  const updateSessionUser = useCallback(
+    (nextUser: User) => {
+      persistUser(nextUser)
+    },
+    [persistUser],
+  )
+
   const value = useMemo(
-    () => ({ user, login, register, logout }),
-    [user, login, register, logout],
+    () => ({
+      user,
+      login,
+      register,
+      createAccountIdentity,
+      updateSessionUser,
+      logout,
+    }),
+    [user, login, register, createAccountIdentity, updateSessionUser, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

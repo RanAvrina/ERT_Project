@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { useApartment } from '../../context/ApartmentContext'
 import { useExpenses } from '../../context/ExpensesContext'
-import { mockUsers, userById } from '../../data/mock'
-import type { Expense } from '../../types/models'
+import type { Expense, User } from '../../types/models'
 
 const allCategories = 'כל הקטגוריות'
 
@@ -15,13 +16,17 @@ interface ExpenseFormState {
   participantIds: number[]
 }
 
-const initialFormState: ExpenseFormState = {
-  description: '',
-  amount: '',
-  category: 'חשבונות',
-  date: '2026-04-11',
-  paidBy: '1',
-  participantIds: mockUsers.map((user) => user.id),
+function createInitialFormState(roommates: User[]): ExpenseFormState {
+  const fallbackPayerId = roommates[0]?.id ?? 0
+
+  return {
+    description: '',
+    amount: '',
+    category: 'חשבונות',
+    date: new Date().toISOString().slice(0, 10),
+    paidBy: fallbackPayerId ? String(fallbackPayerId) : '',
+    participantIds: roommates.map((user) => user.id),
+  }
 }
 
 function formatCurrency(value: string | number) {
@@ -56,19 +61,45 @@ function calculateShare(expense: Expense) {
   return Number(expense.amount) / participants
 }
 
+function buildFormFromExpense(expense: Expense): ExpenseFormState {
+  return {
+    description: expense.description,
+    amount: String(Number(expense.amount)),
+    category: expense.category ?? '',
+    date: expense.date,
+    paidBy: String(expense.paid_by),
+    participantIds: [...expense.participant_ids],
+  }
+}
+
 export function ExpensesPage() {
-  const { expenses, addExpense } = useExpenses()
-  const [monthFilter, setMonthFilter] = useState('2026-04')
+  const { current } = useApartment()
+  const apartmentId = current?.apartment.id ?? 0
+  const roommates = useMemo(
+    () => (current?.roommates ?? []).filter((roommate) => roommate.status === 'active'),
+    [current],
+  )
+  const userNameById = useMemo(
+    () => new Map(roommates.map((roommate) => [roommate.id, roommate.name])),
+    [roommates],
+  )
+  const getUserName = (userId: number) => userNameById.get(userId)
+  const { expenses, addExpense, updateExpense, deleteExpense } = useExpenses()
+  const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7))
   const [categoryFilter, setCategoryFilter] = useState(allCategories)
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null)
-  const [form, setForm] = useState<ExpenseFormState>(initialFormState)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+  const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null)
+  const [form, setForm] = useState<ExpenseFormState>(() => createInitialFormState(roommates))
   const [formError, setFormError] = useState('')
 
-  const activeExpenses = expenses.filter((expense) => expense.status === 'active')
-  const monthOptions = Array.from(
-    new Set(activeExpenses.map((expense) => getMonth(expense.date))),
-  ).sort((first, second) => second.localeCompare(first))
+  const activeExpenses = expenses.filter(
+    (expense) => expense.status === 'active' && expense.apartment_id === apartmentId,
+  )
+  const monthOptions = Array.from(new Set(activeExpenses.map((expense) => getMonth(expense.date)))).sort(
+    (first, second) => second.localeCompare(first),
+  )
   const categoryOptions = Array.from(
     new Set(
       activeExpenses
@@ -76,26 +107,17 @@ export function ExpensesPage() {
         .filter((category): category is string => Boolean(category)),
     ),
   ).sort((first, second) => first.localeCompare(second, 'he'))
+
   const filteredExpenses = activeExpenses.filter((expense) => {
     const matchesMonth = getMonth(expense.date) === monthFilter
-    const matchesCategory =
-      categoryFilter === allCategories || expense.category === categoryFilter
-
+    const matchesCategory = categoryFilter === allCategories || expense.category === categoryFilter
     return matchesMonth && matchesCategory
   })
-  const monthlyExpenses = activeExpenses.filter(
-    (expense) => getMonth(expense.date) === monthFilter,
-  )
-  const monthlyTotal = monthlyExpenses.reduce(
-    (sum, expense) => sum + Number(expense.amount),
-    0,
-  )
-  const filteredTotal = filteredExpenses.reduce(
-    (sum, expense) => sum + Number(expense.amount),
-    0,
-  )
-  const averageExpense =
-    monthlyExpenses.length > 0 ? monthlyTotal / monthlyExpenses.length : 0
+
+  const monthlyExpenses = activeExpenses.filter((expense) => getMonth(expense.date) === monthFilter)
+  const monthlyTotal = monthlyExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
+  const filteredTotal = filteredExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
+  const averageExpense = monthlyExpenses.length > 0 ? monthlyTotal / monthlyExpenses.length : 0
   const totalsByUser = monthlyExpenses.reduce<Record<number, number>>(
     (totals, expense) => ({
       ...totals,
@@ -106,28 +128,52 @@ export function ExpensesPage() {
   const [topPayerId, topPayerTotal] =
     Object.entries(totalsByUser).sort((a, b) => Number(b[1]) - Number(a[1]))[0] ?? []
   const topPayer = topPayerId
-    ? { user: userById(Number(topPayerId)), total: Number(topPayerTotal) }
+    ? { name: getUserName(Number(topPayerId)), total: Number(topPayerTotal) }
     : null
 
   function updateForm(field: keyof ExpenseFormState, value: string | number[]) {
-    setForm((current) => ({ ...current, [field]: value }))
+    setForm((currentForm) => ({ ...currentForm, [field]: value }))
   }
 
   function toggleParticipant(userId: number) {
-    setForm((current) => {
-      const exists = current.participantIds.includes(userId)
+    setForm((currentForm) => {
+      const exists = currentForm.participantIds.includes(userId)
       const participantIds = exists
-        ? current.participantIds.filter((id) => id !== userId)
-        : [...current.participantIds, userId]
+        ? currentForm.participantIds.filter((id) => id !== userId)
+        : [...currentForm.participantIds, userId]
 
-      return { ...current, participantIds }
+      return { ...currentForm, participantIds }
     })
+  }
+
+  function openAddModal() {
+    setEditingExpense(null)
+    setForm(createInitialFormState(roommates))
+    setFormError('')
+    setIsAddOpen(true)
+  }
+
+  function openEditModal(expense: Expense) {
+    setSelectedExpense(null)
+    setEditingExpense(expense)
+    setForm(buildFormFromExpense(expense))
+    setFormError('')
+    setIsAddOpen(true)
   }
 
   function closeAddModal() {
     setIsAddOpen(false)
-    setForm(initialFormState)
+    setEditingExpense(null)
+    setForm(createInitialFormState(roommates))
     setFormError('')
+  }
+
+  function confirmDeleteExpense() {
+    if (!expenseToDelete) return
+    deleteExpense(expenseToDelete.id)
+    if (selectedExpense?.id === expenseToDelete.id) setSelectedExpense(null)
+    if (editingExpense?.id === expenseToDelete.id) closeAddModal()
+    setExpenseToDelete(null)
   }
 
   function handleAddExpense(event: FormEvent<HTMLFormElement>) {
@@ -160,32 +206,45 @@ export function ExpensesPage() {
       return
     }
 
-    const nextExpense = addExpense({
-      apartment_id: 1,
-      paid_by: Number(form.paidBy),
-      amount: amount.toFixed(2),
-      description: form.description.trim(),
-      category: form.category.trim() || null,
-      date: form.date,
-      participant_ids: form.participantIds,
-    })
+    if (editingExpense) {
+      const updatedExpense = updateExpense(editingExpense.id, {
+        paid_by: Number(form.paidBy),
+        amount: amount.toFixed(2),
+        description: form.description.trim(),
+        category: form.category.trim() || null,
+        date: form.date,
+        participant_ids: form.participantIds,
+      })
 
-    setMonthFilter(getMonth(nextExpense.date))
-    if (nextExpense.category) setCategoryFilter(nextExpense.category)
+      if (updatedExpense) {
+        setSelectedExpense(updatedExpense)
+        setMonthFilter(getMonth(updatedExpense.date))
+        if (updatedExpense.category) setCategoryFilter(updatedExpense.category)
+      }
+    } else {
+      const nextExpense = addExpense({
+        apartment_id: apartmentId,
+        paid_by: Number(form.paidBy),
+        amount: amount.toFixed(2),
+        description: form.description.trim(),
+        category: form.category.trim() || null,
+        date: form.date,
+        participant_ids: form.participantIds,
+      })
+      setMonthFilter(getMonth(nextExpense.date))
+      if (nextExpense.category) setCategoryFilter(nextExpense.category)
+    }
+
     closeAddModal()
   }
 
   return (
     <div className="page expenses-page">
       <div className="page__head expenses-hero">
-        <div>
-          <p className="expenses-hero__eyebrow">ניהול הוצאות</p>
-          <h1 className="page__title">הוצאות הדירה</h1>
-        </div>
         <button
           type="button"
           className="btn btn--primary expenses-hero__action"
-          onClick={() => setIsAddOpen(true)}
+          onClick={openAddModal}
         >
           + הוצאה חדשה
         </button>
@@ -193,11 +252,9 @@ export function ExpensesPage() {
 
       <section className="expenses-summary" aria-label="סיכום חודשי">
         <Card className="expenses-summary__main">
-          <p className="expenses-summary__label">סה״כ הוצאות ב{monthLabel(monthFilter)}</p>
+          <p className="expenses-summary__label">סה"כ הוצאות ב{monthLabel(monthFilter)}</p>
           <p className="expenses-summary__amount">{formatCurrency(monthlyTotal)}</p>
-          <p className="expenses-summary__hint">
-            {monthlyExpenses.length} הוצאות פעילות בחודש הנבחר
-          </p>
+          <p className="expenses-summary__hint">{monthlyExpenses.length} הוצאות פעילות בחודש הנבחר</p>
         </Card>
 
         <div className="expenses-summary__grid">
@@ -207,12 +264,8 @@ export function ExpensesPage() {
           </Card>
           <Card>
             <p className="expenses-mini-stat__label">שילם הכי הרבה</p>
-            <p className="expenses-mini-stat__value">
-              {topPayer?.user?.name ?? 'אין נתונים'}
-            </p>
-            {topPayer ? (
-              <p className="expenses-mini-stat__hint">{formatCurrency(topPayer.total)}</p>
-            ) : null}
+            <p className="expenses-mini-stat__value">{topPayer?.name ?? 'אין נתונים'}</p>
+            {topPayer ? <p className="expenses-mini-stat__hint">{formatCurrency(topPayer.total)}</p> : null}
           </Card>
         </div>
       </section>
@@ -221,11 +274,7 @@ export function ExpensesPage() {
         <div className="expenses-filters">
           <label className="field">
             <span className="field__label">חודש</span>
-            <select
-              className="field__input"
-              value={monthFilter}
-              onChange={(event) => setMonthFilter(event.target.value)}
-            >
+            <select className="field__input" value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)}>
               {monthOptions.map((month) => (
                 <option key={month} value={month}>
                   {monthLabel(month)}
@@ -236,11 +285,7 @@ export function ExpensesPage() {
 
           <label className="field">
             <span className="field__label">קטגוריה</span>
-            <select
-              className="field__input"
-              value={categoryFilter}
-              onChange={(event) => setCategoryFilter(event.target.value)}
-            >
+            <select className="field__input" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
               <option value={allCategories}>{allCategories}</option>
               {categoryOptions.map((category) => (
                 <option key={category} value={category}>
@@ -251,8 +296,7 @@ export function ExpensesPage() {
           </label>
         </div>
         <p className="expenses-filter-note">
-          מוצגות {filteredExpenses.length} הוצאות בסכום כולל של{' '}
-          <strong>{formatCurrency(filteredTotal)}</strong>.
+          מוצגות {filteredExpenses.length} הוצאות בסכום כולל של <strong>{formatCurrency(filteredTotal)}</strong>.
         </p>
       </Card>
 
@@ -265,7 +309,7 @@ export function ExpensesPage() {
         ) : (
           <ul className="expense-list expense-list--cards">
             {filteredExpenses.map((expense) => {
-              const payer = userById(expense.paid_by)
+              const payerName = getUserName(expense.paid_by)
 
               return (
                 <li key={expense.id} className="expense-list__item expense-item-card">
@@ -279,13 +323,11 @@ export function ExpensesPage() {
                       <span className="expense-list__meta">
                         {formatDate(expense.date)}
                         {expense.category ? ` · ${expense.category}` : ''}
-                        {payer ? ` · שילם: ${payer.name}` : ''}
+                        {payerName ? ` · שילם: ${payerName}` : ''}
                       </span>
                     </span>
                     <span className="expense-item-card__side">
-                      <span className="expense-list__amount">
-                        {formatCurrency(expense.amount)}
-                      </span>
+                      <span className="expense-list__amount">{formatCurrency(expense.amount)}</span>
                       <span className="expense-item-card__share">
                         חלק לדייר: {formatCurrency(calculateShare(expense))}
                       </span>
@@ -300,17 +342,11 @@ export function ExpensesPage() {
 
       {isAddOpen ? (
         <div className="modal-backdrop" role="presentation">
-          <section
-            className="expense-modal card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-expense-title"
-          >
+          <section className="expense-modal card" role="dialog" aria-modal="true" aria-labelledby="add-expense-title">
             <div className="expense-modal__head">
               <div>
-                <p className="expenses-hero__eyebrow">הוצאה חדשה</p>
-                <h2 id="add-expense-title">מה שולם בדירה?</h2>
-                <p>הפרטים נשמרים כרגע רק בזיכרון המקומי של הדמו.</p>
+                <p className="expenses-hero__eyebrow">{editingExpense ? 'עריכת הוצאה' : 'הוצאה חדשה'}</p>
+                <h2 id="add-expense-title">{editingExpense ? 'עדכון פרטי הוצאה' : 'מה שולם בדירה?'}</h2>
               </div>
               <button type="button" className="btn-text" onClick={closeAddModal}>
                 סגירה
@@ -320,50 +356,25 @@ export function ExpensesPage() {
             <form className="expense-form" onSubmit={handleAddExpense} noValidate>
               <label className="field">
                 <span className="field__label">תיאור ההוצאה</span>
-                <input
-                  className="field__input"
-                  value={form.description}
-                  onChange={(event) => updateForm('description', event.target.value)}
-                  placeholder="לדוגמה: קניות סופר"
-                />
+                <input className="field__input" value={form.description} onChange={(event) => updateForm('description', event.target.value)} />
               </label>
 
               <div className="expense-form__grid">
                 <label className="field">
                   <span className="field__label">סכום</span>
-                  <input
-                    className="field__input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    dir="ltr"
-                    value={form.amount}
-                    onChange={(event) => updateForm('amount', event.target.value)}
-                    placeholder="0.00"
-                  />
+                  <input className="field__input" type="number" min="0" step="0.01" dir="ltr" value={form.amount} onChange={(event) => updateForm('amount', event.target.value)} />
                 </label>
 
                 <label className="field">
                   <span className="field__label">תאריך</span>
-                  <input
-                    className="field__input"
-                    type="date"
-                    dir="ltr"
-                    value={form.date}
-                    onChange={(event) => updateForm('date', event.target.value)}
-                  />
+                  <input className="field__input" type="date" dir="ltr" value={form.date} onChange={(event) => updateForm('date', event.target.value)} />
                 </label>
               </div>
 
               <div className="expense-form__grid">
                 <label className="field">
                   <span className="field__label">קטגוריה</span>
-                  <select
-                    className="field__input"
-                    value={form.category}
-                    onChange={(event) => updateForm('category', event.target.value)}
-                  >
+                  <select className="field__input" value={form.category} onChange={(event) => updateForm('category', event.target.value)}>
                     {['חשבונות', 'מזון', 'ניקיון', 'תחזוקה', 'אחר'].map((category) => (
                       <option key={category} value={category}>
                         {category}
@@ -374,14 +385,10 @@ export function ExpensesPage() {
 
                 <label className="field">
                   <span className="field__label">מי שילם?</span>
-                  <select
-                    className="field__input"
-                    value={form.paidBy}
-                    onChange={(event) => updateForm('paidBy', event.target.value)}
-                  >
-                    {mockUsers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
+                  <select className="field__input" value={form.paidBy} onChange={(event) => updateForm('paidBy', event.target.value)}>
+                    {roommates.map((roommate) => (
+                      <option key={roommate.id} value={roommate.id}>
+                        {roommate.name}
                       </option>
                     ))}
                   </select>
@@ -391,29 +398,27 @@ export function ExpensesPage() {
               <fieldset className="expense-participants">
                 <legend>מי משתתף בחלוקה?</legend>
                 <div className="expense-participants__grid">
-                  {mockUsers.map((user) => (
-                    <label key={user.id} className="expense-participants__option">
+                  {roommates.map((roommate) => (
+                    <label key={roommate.id} className="expense-participants__option">
                       <input
                         type="checkbox"
-                        checked={form.participantIds.includes(user.id)}
-                        onChange={() => toggleParticipant(user.id)}
+                        checked={form.participantIds.includes(roommate.id)}
+                        onChange={() => toggleParticipant(roommate.id)}
                       />
-                      <span>{user.name}</span>
+                      <span>{roommate.name}</span>
                     </label>
                   ))}
                 </div>
               </fieldset>
 
-              {formError ? (
-                <p className="form-message form-message--error">{formError}</p>
-              ) : null}
+              {formError ? <p className="form-message form-message--error">{formError}</p> : null}
 
               <div className="expense-form__actions">
                 <button type="button" className="btn btn--secondary" onClick={closeAddModal}>
                   ביטול
                 </button>
                 <button type="submit" className="btn btn--primary">
-                  שמירת הוצאה
+                  {editingExpense ? 'שמירת שינויים' : 'שמירת הוצאה'}
                 </button>
               </div>
             </form>
@@ -423,12 +428,7 @@ export function ExpensesPage() {
 
       {selectedExpense ? (
         <div className="modal-backdrop" role="presentation">
-          <section
-            className="expense-modal expense-modal--details card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="expense-details-title"
-          >
+          <section className="expense-modal expense-modal--details card" role="dialog" aria-modal="true" aria-labelledby="expense-details-title">
             <div className="expense-modal__head">
               <div>
                 <p className="expenses-hero__eyebrow">פרטי הוצאה</p>
@@ -453,7 +453,7 @@ export function ExpensesPage() {
                 </div>
                 <div>
                   <span>שולם על ידי</span>
-                  <strong>{userById(selectedExpense.paid_by)?.name ?? 'לא ידוע'}</strong>
+                  <strong>{getUserName(selectedExpense.paid_by) ?? 'לא ידוע'}</strong>
                 </div>
                 <div>
                   <span>משתתפים</span>
@@ -469,13 +469,33 @@ export function ExpensesPage() {
                 <h3>דיירים שמשתתפים בהוצאה</h3>
                 <ul className="expense-detail__participants">
                   {selectedExpense.participant_ids.map((userId) => (
-                    <li key={userId}>{userById(userId)?.name ?? 'דייר לא ידוע'}</li>
+                    <li key={userId}>{getUserName(userId) ?? 'דייר לא ידוע'}</li>
                   ))}
                 </ul>
+              </div>
+
+              <div className="expense-form__actions">
+                <button type="button" className="btn btn--secondary" onClick={() => openEditModal(selectedExpense)}>
+                  עריכה
+                </button>
+                <button type="button" className="btn btn--danger" onClick={() => setExpenseToDelete(selectedExpense)}>
+                  מחיקה
+                </button>
               </div>
             </div>
           </section>
         </div>
+      ) : null}
+
+      {expenseToDelete ? (
+        <ConfirmDialog
+          title="למחוק את ההוצאה?"
+          message="ההוצאה תוסר מרשימת ההוצאות ולא תיכלל עוד בחישובי היתרות."
+          confirmLabel="מחיקה"
+          cancelLabel="ביטול"
+          onConfirm={confirmDeleteExpense}
+          onCancel={() => setExpenseToDelete(null)}
+        />
       ) : null}
     </div>
   )

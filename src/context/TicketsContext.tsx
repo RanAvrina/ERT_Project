@@ -1,10 +1,13 @@
 import {
   createContext,
   useContext,
-  useState,
+  useMemo,
   type ReactNode,
 } from 'react'
-import { mockTicketComments, mockTickets } from '../data/mock'
+import {
+  useTicketCommentsStore,
+  useTicketsStore,
+} from '../data/repositories/ticketsRepository'
 import type {
   MaintenanceTicket,
   TicketCategory,
@@ -35,10 +38,18 @@ interface NewTicketInput {
   attachments: TicketAttachment[]
 }
 
+interface UpdateTicketInput {
+  title: string
+  description: string
+  category: TicketCategory
+}
+
 interface TicketsContextValue {
   tickets: TicketWithAttachments[]
   comments: TicketComment[]
   addTicket: (ticket: NewTicketInput) => TicketWithAttachments
+  updateTicket: (ticketId: number, ticket: UpdateTicketInput) => TicketWithAttachments | null
+  deleteTicket: (ticketId: number) => void
   addComment: (ticketId: number, userId: number, text: string) => TicketComment
   updateTicketStatus: (ticketId: number, status: TicketStatus) => void
   getTicketById: (id: string | number | undefined) => TicketWithAttachments | undefined
@@ -47,14 +58,9 @@ interface TicketsContextValue {
 
 const TicketsContext = createContext<TicketsContextValue | null>(null)
 
-const initialTickets: TicketWithAttachments[] = mockTickets.map((ticket) => ({
-  ...ticket,
-  attachments: [],
-}))
-
 export function TicketsProvider({ children }: { children: ReactNode }) {
-  const [tickets, setTickets] = useState<TicketWithAttachments[]>(initialTickets)
-  const [comments, setComments] = useState<TicketComment[]>(mockTicketComments)
+  const [tickets, setTickets] = useTicketsStore()
+  const [comments, setComments] = useTicketCommentsStore()
 
   function addTicket(input: NewTicketInput) {
     const nextId =
@@ -103,6 +109,30 @@ export function TicketsProvider({ children }: { children: ReactNode }) {
     return created
   }
 
+  function updateTicket(ticketId: number, input: UpdateTicketInput) {
+    let updatedTicket: TicketWithAttachments | null = null
+
+    setTickets((current) =>
+      current.map((ticket) => {
+        if (ticket.id !== ticketId) return ticket
+        updatedTicket = {
+          ...ticket,
+          title: input.title,
+          description: input.description,
+          category: input.category,
+        }
+        return updatedTicket
+      }),
+    )
+
+    return updatedTicket
+  }
+
+  function deleteTicket(ticketId: number) {
+    setTickets((current) => current.filter((ticket) => ticket.id !== ticketId))
+    setComments((current) => current.filter((comment) => comment.ticket_id !== ticketId))
+  }
+
   function updateTicketStatus(ticketId: number, status: TicketStatus) {
     setTickets((current) =>
       current.map((ticket) =>
@@ -119,21 +149,22 @@ export function TicketsProvider({ children }: { children: ReactNode }) {
     return comments.filter((comment) => comment.ticket_id === ticketId)
   }
 
-  return (
-    <TicketsContext.Provider
-      value={{
-        tickets,
-        comments,
-        addTicket,
-        addComment,
-        updateTicketStatus,
-        getTicketById,
-        getCommentsByTicketId,
-      }}
-    >
-      {children}
-    </TicketsContext.Provider>
+  const value = useMemo(
+    () => ({
+      tickets,
+      comments,
+      addTicket,
+      updateTicket,
+      deleteTicket,
+      addComment,
+      updateTicketStatus,
+      getTicketById,
+      getCommentsByTicketId,
+    }),
+    [tickets, comments],
   )
+
+  return <TicketsContext.Provider value={value}>{children}</TicketsContext.Provider>
 }
 
 export function useTickets() {

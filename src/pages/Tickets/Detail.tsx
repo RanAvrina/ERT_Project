@@ -1,13 +1,21 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { TicketStatusChip } from '../../components/StatusChip'
 import { useAuth } from '../../context/AuthContext'
 import { useApartment } from '../../context/ApartmentContext'
 import { useTickets } from '../../context/TicketsContext'
-import { userById } from '../../data/mock'
 import { appRoutes } from '../../routes/paths'
-import type { TicketStatus } from '../../types/models'
+import type { TicketCategory, TicketStatus } from '../../types/models'
+
+interface TicketEditFormState {
+  title: string
+  description: string
+  category: TicketCategory
+}
+
+const ticketCategoryOptions: TicketCategory[] = ['תקלה', 'בקשה', 'כספים', 'אחר']
 
 function formatTicketDateTime(value: string) {
   return new Intl.DateTimeFormat('he-IL', {
@@ -21,14 +29,29 @@ function formatTicketDateTime(value: string) {
 
 export function TicketDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { current } = useApartment()
-  const { getTicketById, addComment, updateTicketStatus, getCommentsByTicketId } =
-    useTickets()
+  const {
+    getTicketById,
+    addComment,
+    updateTicket,
+    deleteTicket,
+    updateTicketStatus,
+    getCommentsByTicketId,
+  } = useTickets()
   const ticket = getTicketById(id)
-  const apartmentId = current?.apartment.id ?? 1
+  const apartmentId = current?.apartment.id ?? 0
   const [commentText, setCommentText] = useState('')
   const [commentError, setCommentError] = useState('')
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [ticketToDelete, setTicketToDelete] = useState(false)
+  const [editForm, setEditForm] = useState<TicketEditFormState>({
+    title: ticket?.title ?? '',
+    description: ticket?.description ?? '',
+    category: ticket?.category ?? 'תקלה',
+  })
+  const [editError, setEditError] = useState('')
   const isLandlord = user?.role === 'landlord'
 
   if (!ticket || ticket.apartment_id !== apartmentId) {
@@ -42,14 +65,15 @@ export function TicketDetailPage() {
     )
   }
 
+  const currentTicket = ticket
+
   const knownUsers = [
     ...(current?.roommates ?? []),
     ...(current?.landlordUser ? [current.landlordUser] : []),
   ]
-  const author =
-    knownUsers.find((candidate) => candidate.id === ticket.created_by) ??
-    userById(ticket.created_by)
-  const comments = getCommentsByTicketId(ticket.id)
+  const author = knownUsers.find((candidate) => candidate.id === currentTicket.created_by)
+  const comments = getCommentsByTicketId(currentTicket.id)
+  const ticketId = currentTicket.id
 
   function handleCommentSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -60,12 +84,54 @@ export function TicketDetailPage() {
       return
     }
 
-    addComment(ticket.id, user?.id ?? 1, commentText.trim())
+    addComment(ticketId, user?.id ?? 0, commentText.trim())
     setCommentText('')
   }
 
   function handleStatusChange(event: ChangeEvent<HTMLSelectElement>) {
-    updateTicketStatus(ticket.id, event.target.value as TicketStatus)
+    updateTicketStatus(ticketId, event.target.value as TicketStatus)
+  }
+
+  function openEditModal() {
+    setEditForm({
+      title: currentTicket.title,
+      description: currentTicket.description,
+      category: currentTicket.category,
+    })
+    setEditError('')
+    setIsEditOpen(true)
+  }
+
+  function closeEditModal() {
+    setIsEditOpen(false)
+    setEditError('')
+  }
+
+  function handleEditSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setEditError('')
+
+    if (!editForm.title.trim()) {
+      setEditError('צריך לתת לפנייה כותרת קצרה וברורה.')
+      return
+    }
+
+    if (!editForm.description.trim()) {
+      setEditError('צריך להוסיף תיאור קצר כדי שיהיה ברור מה צריך טיפול.')
+      return
+    }
+
+    updateTicket(currentTicket.id, {
+      title: editForm.title.trim(),
+      description: editForm.description.trim(),
+      category: editForm.category,
+    })
+    closeEditModal()
+  }
+
+  function confirmDeleteTicket() {
+    deleteTicket(currentTicket.id)
+    navigate(appRoutes.tickets)
   }
 
   return (
@@ -74,15 +140,15 @@ export function TicketDetailPage() {
         חזרה לפניות
       </Link>
       <div className="page__head page__head--ticket">
-        <h1 className="page__title">{ticket.title}</h1>
+        <h1 className="page__title">{currentTicket.title}</h1>
         <div className="ticket-status">
-          <TicketStatusChip status={ticket.status} />
+          <TicketStatusChip status={currentTicket.status} />
           {isLandlord ? (
             <label className="ticket-status__control">
               <span>סטטוס טיפול</span>
               <select
                 className="field__input"
-                value={ticket.status}
+                value={currentTicket.status}
                 onChange={handleStatusChange}
               >
                 <option value="open">פתוח</option>
@@ -96,12 +162,30 @@ export function TicketDetailPage() {
         </div>
       </div>
 
-      <Card title="פרטי הפנייה">
-        <p className="ticket-body">{ticket.description}</p>
+      <Card
+        title="פרטי הפנייה"
+        action={
+          isLandlord ? null : (
+            <div className="roommate-actions">
+              <button type="button" className="btn btn--secondary btn--small" onClick={openEditModal}>
+                עריכה
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger btn--small"
+                onClick={() => setTicketToDelete(true)}
+              >
+                מחיקה
+              </button>
+            </div>
+          )
+        }
+      >
+        <p className="ticket-body">{currentTicket.description}</p>
         <div className="ticket-facts">
-          <span>קטגוריה: {ticket.category}</span>
+          <span>קטגוריה: {currentTicket.category}</span>
           <span>נפתחה על ידי: {author?.name ?? 'דייר'}</span>
-          <span>נפתחה: {formatTicketDateTime(ticket.created_at)}</span>
+          <span>נפתחה: {formatTicketDateTime(currentTicket.created_at)}</span>
         </div>
       </Card>
 
@@ -111,9 +195,7 @@ export function TicketDetailPage() {
         ) : (
           <ul className="comment-list">
             {comments.map((c) => {
-              const u =
-                knownUsers.find((candidate) => candidate.id === c.user_id) ??
-                userById(c.user_id)
+              const u = knownUsers.find((candidate) => candidate.id === c.user_id)
               return (
                 <li key={c.id} className="comment-list__item">
                   <div className="comment-list__meta">
@@ -149,11 +231,11 @@ export function TicketDetailPage() {
       </Card>
 
       <Card title="קבצים מצורפים">
-        {ticket.attachments.length === 0 ? (
+        {currentTicket.attachments.length === 0 ? (
           <p className="muted">לא צורפו קבצים לפנייה הזו.</p>
         ) : (
           <ul className="ticket-attachments">
-            {ticket.attachments.map((attachment) => (
+            {currentTicket.attachments.map((attachment) => (
               <li key={attachment.id} className="ticket-attachments__item">
                 <a href={attachment.url} target="_blank" rel="noreferrer">
                   {attachment.name}
@@ -163,6 +245,97 @@ export function TicketDetailPage() {
           </ul>
         )}
       </Card>
+
+      {isEditOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="ticket-modal card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-ticket-title"
+          >
+            <div className="ticket-modal__head">
+              <div>
+                <p className="tickets-hero__eyebrow">עריכת פנייה</p>
+                <h2 id="edit-ticket-title">עדכון פרטי הפנייה</h2>
+                <p>אפשר לעדכן כאן את הכותרת, התיאור והקטגוריה.</p>
+              </div>
+              <button type="button" className="btn-text" onClick={closeEditModal}>
+                סגירה
+              </button>
+            </div>
+
+            <form className="ticket-form" onSubmit={handleEditSubmit} noValidate>
+              <label className="field">
+                <span className="field__label">כותרת הפנייה</span>
+                <input
+                  className="field__input"
+                  value={editForm.title}
+                  onChange={(event) =>
+                    setEditForm((current) => ({ ...current, title: event.target.value }))
+                  }
+                />
+              </label>
+
+              <label className="field">
+                <span className="field__label">תיאור</span>
+                <textarea
+                  className="field__input ticket-form__textarea"
+                  value={editForm.description}
+                  onChange={(event) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+
+              <label className="field">
+                <span className="field__label">קטגוריה</span>
+                <select
+                  className="field__input"
+                  value={editForm.category}
+                  onChange={(event) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      category: event.target.value as TicketCategory,
+                    }))
+                  }
+                >
+                  {ticketCategoryOptions.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {editError ? <p className="form-message form-message--error">{editError}</p> : null}
+
+              <div className="ticket-form__actions">
+                <button type="button" className="btn btn--secondary" onClick={closeEditModal}>
+                  ביטול
+                </button>
+                <button type="submit" className="btn btn--primary">
+                  שמירת שינויים
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
+
+      {ticketToDelete ? (
+        <ConfirmDialog
+          title="למחוק את הפנייה?"
+          message="הפנייה תוסר מרשימת הפניות ולא תהיה זמינה עוד."
+          confirmLabel="מחיקה"
+          cancelLabel="ביטול"
+          onConfirm={confirmDeleteTicket}
+          onCancel={() => setTicketToDelete(false)}
+        />
+      ) : null}
     </div>
   )
 }

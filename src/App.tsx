@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { AppLayout } from './layouts/AppLayout'
+import { ApartmentInfoPage } from './pages/ApartmentInfo'
 import { DashboardPage } from './pages/Dashboard'
 import { ExpensesPage } from './pages/Expenses'
 import { LoginPage } from './pages/Login'
@@ -110,8 +111,16 @@ export default function App() {
         <Route
           path={appRoutes.roommates}
           element={
-            <RoleGate>
+            <RoleGate allowLandlord>
               <RoommatesPage />
+            </RoleGate>
+          }
+        />
+        <Route
+          path={appRoutes.apartmentInfo}
+          element={
+            <RoleGate allowLandlord>
+              <ApartmentInfoPage />
             </RoleGate>
           }
         />

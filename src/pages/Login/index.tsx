@@ -1,30 +1,157 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { AuthShell } from '../../components/auth/AuthShell'
+import { useApartment } from '../../context/ApartmentContext'
 import { useAuth } from '../../context/AuthContext'
-import { mockUsers } from '../../data/mock'
 import { appRoutes } from '../../routes/paths'
+import { clearPendingInvite, readPendingInvite } from '../../utils/invite'
+import { isValidEmail } from '../../utils/validation'
 
 export function LoginPage() {
-  const { user, login } = useAuth()
+  const { completeInviteJoin } = useApartment()
+  const { user, login, logout, updateSessionUser } = useAuth()
   const navigate = useNavigate()
-  const [email, setEmail] = useState('ran@example.com')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [errors, setErrors] = useState({ email: '', password: '' })
+  const [isResetOpen, setIsResetOpen] = useState(false)
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetError, setResetError] = useState('')
+  const [resetSuccess, setResetSuccess] = useState('')
+  const pendingInviteForSession = readPendingInvite()
 
-  if (user) return <Navigate to={appRoutes.dashboard} replace />
+  function logoutForInviteLogin() {
+    logout()
+    setEmail('')
+    setPassword('')
+    setError('')
+  }
+
+  function toggleResetPassword() {
+    setIsResetOpen((currentState) => !currentState)
+    setResetError('')
+    setResetSuccess('')
+  }
+
+  function handleForgotPasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setResetError('')
+    setResetSuccess('')
+
+    if (!resetEmail.trim()) {
+      setResetError('צריך להזין כתובת אימייל כדי להמשיך.')
+      return
+    }
+
+    if (!isValidEmail(resetEmail)) {
+      setResetError('כתובת האימייל לא תקינה.')
+      return
+    }
+
+    setResetSuccess(
+      'אם קיים חשבון עם כתובת המייל הזו, יישלח אליו קישור לאיפוס סיסמה.',
+    )
+  }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    const nextErrors = { email: '', password: '' }
 
-    const result = login({ email, password })
+    if (!email.trim()) {
+      nextErrors.email = 'צריך להזין כתובת אימייל.'
+    } else if (!isValidEmail(email)) {
+      nextErrors.email = 'כתובת האימייל לא תקינה.'
+    }
+
+    if (!password.trim()) {
+      nextErrors.password = 'צריך להזין סיסמה כדי להמשיך.'
+    }
+
+    setErrors(nextErrors)
+    if (nextErrors.email || nextErrors.password) return
+
+    const pendingInvite = readPendingInvite()
+    const result = login({
+      email,
+      password,
+      allowDetachedAccount: Boolean(pendingInvite),
+    })
+
     if (!result.ok) {
       setError(result.error)
       return
     }
 
-    navigate(appRoutes.dashboard)
+    if (pendingInvite) {
+      if (!result.user) {
+        logout()
+        setError('לא הצלחנו להשלים את ההצטרפות. נסו להתחבר שוב.')
+        return
+      }
+
+      const joinResult = completeInviteJoin({
+        apartmentId: pendingInvite.apartmentId,
+        role: pendingInvite.role,
+        user: result.user,
+      })
+
+      if (!joinResult.ok || !joinResult.user) {
+        logout()
+        setError(joinResult.error)
+        return
+      }
+
+      updateSessionUser(joinResult.user)
+      clearPendingInvite()
+      navigate(
+        pendingInvite.role === 'landlord' ? appRoutes.tickets : appRoutes.dashboard,
+      )
+      return
+    }
+
+    navigate(result.user?.role === 'landlord' ? appRoutes.tickets : appRoutes.dashboard)
+  }
+
+  if (user && pendingInviteForSession) {
+    return (
+      <AuthShell
+        title="בחירת חשבון להצטרפות"
+        subtitle="צריך להתחבר עם החשבון שאמור להצטרף לדירה"
+        hideIntro
+        footer={
+          <p className="auth-card__footer-text">
+            רוצים לחזור להזמנה?{' '}
+            <Link
+              to={`/invite/${pendingInviteForSession.apartmentId}?role=${pendingInviteForSession.role}&token=${pendingInviteForSession.token ?? ''}`}
+              className="link"
+            >
+              חזרה להזמנה
+            </Link>
+          </p>
+        }
+      >
+        <div className="form-stack">
+          <p className="form-message">
+            כרגע מחוברים כ־{user.name} ({user.email}). כדי להצטרף דרך ההזמנה צריך
+            להתנתק ולהתחבר עם החשבון המתאים.
+          </p>
+          {error ? <p className="form-message form-message--error">{error}</p> : null}
+          <button
+            type="button"
+            className="btn btn--primary btn--block"
+            onClick={logoutForInviteLogin}
+          >
+            התנתק והתחבר עם חשבון אחר
+          </button>
+        </div>
+      </AuthShell>
+    )
+  }
+
+  if (user) {
+    return <Navigate to={user.role === 'landlord' ? appRoutes.tickets : appRoutes.dashboard} replace />
   }
 
   return (
@@ -36,7 +163,7 @@ export function LoginPage() {
         <p className="auth-card__footer-text">
           אין לך חשבון?{' '}
           <Link to={appRoutes.register} className="link">
-            פתחו חשבון חדש
+            פתיחת חשבון חדש
           </Link>
           <span className="auth-card__footer-divider">·</span>
           <Link to={appRoutes.createApartment} className="link">
@@ -46,56 +173,84 @@ export function LoginPage() {
       }
     >
       <form className="form-stack" onSubmit={onSubmit} noValidate>
-          <label className="field">
-            <span className="field__label">כתובת אימייל</span>
-            <input
-              className="field__input"
-              type="email"
-              autoComplete="username"
-              dir="ltr"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-            />
-            <span className="field__hint">אפשר לבחור חשבון דמו מהרשימה למטה.</span>
-          </label>
-          <label className="field">
-            <span className="field__label">סיסמה</span>
-            <input
-              className="field__input"
-              type="password"
-              autoComplete="current-password"
-              dir="ltr"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="כל סיסמה תעבוד בדמו"
-            />
-          </label>
-          {error ? <p className="form-message form-message--error">{error}</p> : null}
-          <button type="submit" className="btn btn--primary btn--block">
-            כניסה לחשבון
-          </button>
+        <label className="field">
+          <span className="field__label">כתובת אימייל</span>
+          <input
+            className="field__input"
+            type="email"
+            autoComplete="username"
+            dir="ltr"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@example.com"
+          />
+          {errors.email ? <span className="field__error">{errors.email}</span> : null}
+        </label>
+
+        <label className="field">
+          <span className="field__label">סיסמה</span>
+          <input
+            className="field__input"
+            type="password"
+            autoComplete="current-password"
+            dir="ltr"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="הסיסמה שלכם"
+          />
+          {errors.password ? (
+            <span className="field__error">{errors.password}</span>
+          ) : null}
+        </label>
+
+        {error ? <p className="form-message form-message--error">{error}</p> : null}
+
+        <button type="submit" className="btn btn--primary btn--block">
+          כניסה לחשבון
+        </button>
       </form>
 
-      <div className="auth-card__demo">
-        <p className="auth-card__demo-title">כניסה מהירה בדמו</p>
-        <ul className="auth-card__demo-list">
-          {mockUsers.map((demoUser) => (
-            <li key={demoUser.id}>
-              <button
-                type="button"
-                className="auth-card__demo-item"
-                onClick={() => {
-                  setEmail(demoUser.email)
-                  setError('')
-                }}
-              >
-                <span>{demoUser.name}</span>
-                <span dir="ltr">{demoUser.email}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      <div className="auth-card__secondary-flow">
+        <button
+          type="button"
+          className="btn-text auth-card__secondary-action"
+          onClick={toggleResetPassword}
+          aria-expanded={isResetOpen}
+        >
+          שכחתי סיסמה
+        </button>
+
+        {isResetOpen ? (
+          <form className="auth-inline-panel" onSubmit={handleForgotPasswordSubmit} noValidate>
+            <div className="auth-inline-panel__head">
+              <h3>איפוס סיסמה</h3>
+            </div>
+
+            <label className="field">
+              <span className="field__label">כתובת אימייל</span>
+              <input
+                className="field__input"
+                type="email"
+                dir="ltr"
+                autoComplete="email"
+                value={resetEmail}
+                onChange={(event) => setResetEmail(event.target.value)}
+                placeholder="you@example.com"
+              />
+            </label>
+
+            {resetError ? (
+              <p className="form-message form-message--error">{resetError}</p>
+            ) : null}
+            {resetSuccess ? (
+              <p className="form-message form-message--success">{resetSuccess}</p>
+            ) : null}
+
+            <button type="submit" className="btn btn--secondary btn--block">
+              שלח קישור לאיפוס
+            </button>
+          </form>
+        ) : null}
       </div>
     </AuthShell>
   )

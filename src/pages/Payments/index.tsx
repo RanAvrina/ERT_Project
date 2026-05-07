@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Card } from '../../components/Card'
-import { PaymentStatusChip } from '../../components/StatusChip'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { useApartment } from '../../context/ApartmentContext'
 import { useAuth } from '../../context/AuthContext'
-import { useExpenses } from '../../context/ExpensesContext'
-import { mockUsers, userById } from '../../data/mock'
-import type { Payment } from '../../types/models'
+import { useExpenses, type BalanceSettlement } from '../../context/ExpensesContext'
+import type { Expense, Payment, User } from '../../types/models'
 
 interface PaymentFormState {
   payerId: string
@@ -14,24 +14,93 @@ interface PaymentFormState {
   note: string
 }
 
-const initialPaymentForm: PaymentFormState = {
-  payerId: '1',
-  payeeId: '2',
-  amount: '',
-  paymentDate: '2026-04-11',
-  note: '',
+function calculateApartmentBalances(expenses: Expense[], payments: Payment[]) {
+  const netBalanceByUser: Record<number, number> = {}
+
+  expenses
+    .filter((expense) => expense.status === 'active')
+    .forEach((expense) => {
+      const amount = Number(expense.amount)
+      const participants = expense.participant_ids
+      if (!Number.isFinite(amount) || amount <= 0 || participants.length === 0) return
+
+      const share = amount / participants.length
+      netBalanceByUser[expense.paid_by] = (netBalanceByUser[expense.paid_by] ?? 0) + amount
+
+      participants.forEach((participantId) => {
+        netBalanceByUser[participantId] = (netBalanceByUser[participantId] ?? 0) - share
+      })
+    })
+
+  payments
+    .filter((payment) => payment.status === 'recorded')
+    .forEach((payment) => {
+      const amount = Number(payment.amount)
+      if (!Number.isFinite(amount) || amount <= 0) return
+
+      netBalanceByUser[payment.payer_id] = (netBalanceByUser[payment.payer_id] ?? 0) + amount
+      netBalanceByUser[payment.payee_id] = (netBalanceByUser[payment.payee_id] ?? 0) - amount
+    })
+
+  const debtors = Object.entries(netBalanceByUser)
+    .map(([userId, balance]) => ({ userId: Number(userId), amount: -balance }))
+    .filter((entry) => entry.amount > 0.005)
+    .sort((a, b) => b.amount - a.amount)
+
+  const creditors = Object.entries(netBalanceByUser)
+    .map(([userId, balance]) => ({ userId: Number(userId), amount: balance }))
+    .filter((entry) => entry.amount > 0.005)
+    .sort((a, b) => b.amount - a.amount)
+
+  const settlements: BalanceSettlement[] = []
+  let debtorIndex = 0
+  let creditorIndex = 0
+
+  while (debtors[debtorIndex] && creditors[creditorIndex]) {
+    const debtor = debtors[debtorIndex]
+    const creditor = creditors[creditorIndex]
+    const amount = Math.min(debtor.amount, creditor.amount)
+
+    if (amount > 0.005) {
+      settlements.push({
+        id: `balance-${debtor.userId}-${creditor.userId}-${settlements.length}`,
+        payer_id: debtor.userId,
+        payee_id: creditor.userId,
+        amount: amount.toFixed(2),
+      })
+    }
+
+    debtor.amount -= amount
+    creditor.amount -= amount
+    if (debtor.amount <= 0.005) debtorIndex += 1
+    if (creditor.amount <= 0.005) creditorIndex += 1
+  }
+
+  return { netBalanceByUser, settlements }
 }
 
-function createInitialPaymentForm(currentUserId?: number): PaymentFormState {
-  const payerId = currentUserId ?? Number(initialPaymentForm.payerId)
-  const payeeId =
-    mockUsers.find((roommate) => roommate.id !== payerId)?.id ??
-    Number(initialPaymentForm.payeeId)
+function createInitialPaymentForm(roommates: User[], currentUserId?: number): PaymentFormState {
+  const fallbackPayer =
+    roommates.find((roommate) => roommate.id === currentUserId) ?? roommates[0] ?? null
+  const fallbackPayee =
+    roommates.find((roommate) => roommate.id !== fallbackPayer?.id) ?? roommates[0] ?? null
 
   return {
-    ...initialPaymentForm,
-    payerId: String(payerId),
-    payeeId: String(payeeId),
+    payerId: fallbackPayer ? String(fallbackPayer.id) : '',
+    payeeId: fallbackPayee ? String(fallbackPayee.id) : '',
+    amount: '',
+    paymentDate: new Date().toISOString().slice(0, 10),
+    note: '',
+  }
+}
+
+function buildFormFromPayment(payment: Payment): PaymentFormState {
+  return {
+    payerId: String(payment.payer_id),
+    payeeId: String(payment.payee_id),
+    amount: String(Number(payment.amount)),
+    paymentDate: payment.created_at.slice(0, 10),
+    note: payment.note ?? '',
   }
 }
 
@@ -53,39 +122,80 @@ function formatDateTime(value: string) {
   }).format(new Date(value))
 }
 
-function paymentDirection(payment: Payment, currentUserId?: number) {
-  if (!currentUserId) return ''
-  if (payment.payer_id === currentUserId) return 'תשלום שרשמת'
-  if (payment.payee_id === currentUserId) return 'תשלום שמיועד אליך'
-  return ''
-}
-
 export function PaymentsPage() {
   const { user } = useAuth()
-  const { payments, addPayment, settlements, netBalanceByUser } = useExpenses()
+  const { current } = useApartment()
+  const { expenses, payments, addPayment, updatePayment, deletePayment } = useExpenses()
+  const apartmentId = current?.apartment.id ?? 0
+  const roommates = useMemo(
+    () => (current?.roommates ?? []).filter((roommate) => roommate.status === 'active'),
+    [current],
+  )
+  const userNameById = useMemo(
+    () => new Map(roommates.map((roommate) => [roommate.id, roommate.name])),
+    [roommates],
+  )
+  const getUserName = (userId: number) => userNameById.get(userId) ?? 'דייר לא ידוע'
+
+  const apartmentExpenses = useMemo(
+    () => expenses.filter((expense) => expense.apartment_id === apartmentId),
+    [apartmentId, expenses],
+  )
+  const apartmentPayments = useMemo(
+    () => payments.filter((payment) => payment.apartment_id === apartmentId),
+    [apartmentId, payments],
+  )
+  const activePayments = apartmentPayments.filter((payment) => payment.status === 'recorded')
+  const { settlements, netBalanceByUser } = useMemo(
+    () => calculateApartmentBalances(apartmentExpenses, apartmentPayments),
+    [apartmentExpenses, apartmentPayments],
+  )
+
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null)
+  const [paymentToDelete, setPaymentToDelete] = useState<Payment | null>(null)
+  const [activeTab, setActiveTab] = useState<'balances' | 'history'>('balances')
   const [paymentForm, setPaymentForm] = useState<PaymentFormState>(() =>
-    createInitialPaymentForm(user?.id),
+    createInitialPaymentForm(roommates, user?.id),
   )
   const [formError, setFormError] = useState('')
+
   const myId = user?.id
   const totalBalanceToSettle = settlements.reduce(
     (sum, settlement) => sum + Number(settlement.amount),
     0,
   )
   const myNetBalance = myId ? netBalanceByUser[myId] ?? 0 : 0
-  const totalRecordedPayments = payments.reduce(
+  const totalRecordedPayments = activePayments.reduce(
     (sum, payment) => sum + Number(payment.amount),
     0,
   )
+
   function updatePaymentForm(field: keyof PaymentFormState, value: string) {
-    setPaymentForm((current) => ({ ...current, [field]: value }))
+    setPaymentForm((currentForm) => ({ ...currentForm, [field]: value }))
+  }
+
+  function openAddPaymentModal() {
+    setEditingPayment(null)
+    setPaymentForm(createInitialPaymentForm(roommates, user?.id))
+    setFormError('')
+    setIsPaymentModalOpen(true)
+  }
+
+  function openEditPaymentModal(payment: Payment) {
+    setSelectedPayment(null)
+    setEditingPayment(payment)
+    setPaymentForm(buildFormFromPayment(payment))
+    setFormError('')
+    setIsPaymentModalOpen(true)
   }
 
   function closePaymentModal() {
     setIsPaymentModalOpen(false)
+    setEditingPayment(null)
     setFormError('')
-    setPaymentForm(createInitialPaymentForm(user?.id))
+    setPaymentForm(createInitialPaymentForm(roommates, user?.id))
   }
 
   function handleAddPayment(event: FormEvent<HTMLFormElement>) {
@@ -93,6 +203,7 @@ export function PaymentsPage() {
     setFormError('')
 
     const amount = Number(paymentForm.amount)
+
     if (!paymentForm.payerId) {
       setFormError('צריך לבחור מי שילם.')
       return
@@ -118,29 +229,45 @@ export function PaymentsPage() {
       return
     }
 
-    addPayment({
-      apartment_id: 1,
-      payer_id: Number(paymentForm.payerId),
-      payee_id: Number(paymentForm.payeeId),
-      amount: amount.toFixed(2),
-      created_at: `${paymentForm.paymentDate}T12:00:00`,
-      note: paymentForm.note.trim() || null,
-    })
+    if (editingPayment) {
+      const updatedPayment = updatePayment(editingPayment.id, {
+        payer_id: Number(paymentForm.payerId),
+        payee_id: Number(paymentForm.payeeId),
+        amount: amount.toFixed(2),
+        created_at: `${paymentForm.paymentDate}T12:00:00`,
+        note: paymentForm.note.trim() || null,
+      })
+
+      if (updatedPayment) setSelectedPayment(updatedPayment)
+    } else {
+      addPayment({
+        apartment_id: apartmentId,
+        payer_id: Number(paymentForm.payerId),
+        payee_id: Number(paymentForm.payeeId),
+        amount: amount.toFixed(2),
+        created_at: `${paymentForm.paymentDate}T12:00:00`,
+        note: paymentForm.note.trim() || null,
+      })
+    }
 
     closePaymentModal()
+  }
+
+  function confirmDeletePayment() {
+    if (!paymentToDelete) return
+    deletePayment(paymentToDelete.id)
+    if (selectedPayment?.id === paymentToDelete.id) setSelectedPayment(null)
+    if (editingPayment?.id === paymentToDelete.id) closePaymentModal()
+    setPaymentToDelete(null)
   }
 
   return (
     <div className="page payments-page">
       <div className="page__head payments-hero">
-        <div>
-          <p className="payments-hero__eyebrow">תשלומים</p>
-          <h1 className="page__title">מי שילם למי?</h1>
-        </div>
         <button
           type="button"
           className="btn btn--primary payments-hero__action"
-          onClick={() => setIsPaymentModalOpen(true)}
+          onClick={openAddPaymentModal}
         >
           רישום תשלום
         </button>
@@ -148,22 +275,16 @@ export function PaymentsPage() {
 
       <section className="payments-summary" aria-label="סיכום תשלומים">
         <Card className="payments-summary__main">
-          <p className="payments-summary__label">סה״כ תשלומים שנרשמו</p>
-          <p className="payments-summary__amount">
-            {formatCurrency(totalRecordedPayments)}
-          </p>
-          <p className="payments-summary__hint">
-            תשלומים שנרשמים כאן מקטינים את היתרות בין הדיירים.
-          </p>
+          <p className="payments-summary__label">סה"כ תשלומים שנרשמו</p>
+          <p className="payments-summary__amount">{formatCurrency(totalRecordedPayments)}</p>
         </Card>
 
         <div className="payments-summary__grid">
           <Card>
             <p className="payments-mini-stat__label">יתרה לתיאום</p>
-            <p className="payments-mini-stat__value">
-              {formatCurrency(totalBalanceToSettle)}
-            </p>
+            <p className="payments-mini-stat__value">{formatCurrency(totalBalanceToSettle)}</p>
           </Card>
+
           <Card>
             <p className="payments-mini-stat__label">היתרה שלך</p>
             <p
@@ -174,79 +295,96 @@ export function PaymentsPage() {
               {formatCurrency(Math.abs(myNetBalance))}
             </p>
             <p className="payments-mini-stat__hint">
-              {myNetBalance > 0.005
-                ? 'חייבים לך'
-                : myNetBalance < -0.005
-                  ? 'אתה חייב'
-                  : 'מאוזן'}
+              {myNetBalance > 0.005 ? 'חייבים לך' : myNetBalance < -0.005 ? 'אתה חייב' : 'מאוזן'}
             </p>
           </Card>
         </div>
       </section>
 
-      <Card title="יתרות לתיאום">
-        {settlements.length === 0 ? (
-          <p className="muted">אין יתרות פתוחות לפי ההוצאות שנרשמו.</p>
-        ) : (
-          <ul className="debt-list">
-            {settlements.map((settlement) => {
-              const payer = userById(settlement.payer_id)
-              const payee = userById(settlement.payee_id)
-              const isRelatedToMe =
-                myId != null &&
-                (settlement.payer_id === myId || settlement.payee_id === myId)
+      <div className="shopping-filter-tabs payments-tabs" aria-label="מעבר בין אזורי תשלומים">
+        <button
+          type="button"
+          className={`shopping-filter-tabs__button${
+            activeTab === 'balances' ? ' shopping-filter-tabs__button--active' : ''
+          }`}
+          onClick={() => setActiveTab('balances')}
+        >
+          יתרות לתיאום
+        </button>
+        <button
+          type="button"
+          className={`shopping-filter-tabs__button${
+            activeTab === 'history' ? ' shopping-filter-tabs__button--active' : ''
+          }`}
+          onClick={() => setActiveTab('history')}
+        >
+          תשלומים אחרונים
+        </button>
+      </div>
 
-              return (
-                <li key={settlement.id} className="debt-list__item">
-                  <div className="debt-list__route">
-                    <span className="debt-list__person">{payer?.name}</span>
-                    <span className="debt-list__arrow">←</span>
-                    <span className="debt-list__person">{payee?.name}</span>
-                  </div>
-                  <div className="debt-list__meta">
-                    <span>לפי חלוקה שווה של ההוצאות</span>
-                    {isRelatedToMe ? <span className="debt-list__tag">שלך</span> : null}
-                  </div>
-                  <strong className="debt-list__amount">
-                    {formatCurrency(settlement.amount)}
-                  </strong>
+      {activeTab === 'balances' ? (
+        <Card title="יתרות לתיאום">
+          {settlements.length === 0 ? (
+            <p className="muted">אין יתרות פתוחות לפי ההוצאות והתשלומים שנרשמו בדירה הזו.</p>
+          ) : (
+            <ul className="debt-list">
+              {settlements.map((settlement) => {
+                const isRelatedToMe =
+                  myId != null &&
+                  (settlement.payer_id === myId || settlement.payee_id === myId)
+
+                return (
+                  <li key={settlement.id} className="debt-list__item">
+                    <div className="debt-list__route">
+                      <span className="debt-list__person">{getUserName(settlement.payer_id)}</span>
+                      <span className="debt-list__arrow">←</span>
+                      <span className="debt-list__person">{getUserName(settlement.payee_id)}</span>
+                    </div>
+                    <div className="debt-list__meta">
+                      <span>מבוסס על הוצאות ותשלומים שנרשמו בדירה</span>
+                      {isRelatedToMe ? <span className="debt-list__tag">שלך</span> : null}
+                    </div>
+                    <strong className="debt-list__amount">
+                      {formatCurrency(settlement.amount)}
+                    </strong>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </Card>
+      ) : (
+        <Card title="תשלומים אחרונים">
+          {activePayments.length === 0 ? (
+            <p className="muted">עדיין לא נרשמו תשלומים בדירה הזו.</p>
+          ) : (
+            <ul className="payment-list payment-list--cards">
+              {activePayments.map((payment) => (
+                <li key={payment.id} className="payment-list__item payment-item-card">
+                  <button
+                    type="button"
+                    className="expense-item-card__button"
+                    onClick={() => setSelectedPayment(payment)}
+                  >
+                    <div className="payment-item-card__main">
+                      <div className="payment-list__title">
+                        {getUserName(payment.payer_id)} שילם ל־{getUserName(payment.payee_id)}
+                      </div>
+                      <div className="payment-list__meta">{formatDateTime(payment.created_at)}</div>
+                      {payment.note ? (
+                        <div className="payment-list__note">{payment.note}</div>
+                      ) : null}
+                    </div>
+                    <div className="payment-list__right">
+                      <div className="payment-list__amount">{formatCurrency(payment.amount)}</div>
+                    </div>
+                  </button>
                 </li>
-              )
-            })}
-          </ul>
-        )}
-      </Card>
-
-      <Card title="תשלומים אחרונים">
-        <ul className="payment-list payment-list--cards">
-          {payments.map((payment) => {
-            const payer = userById(payment.payer_id)
-            const payee = userById(payment.payee_id)
-            const direction = paymentDirection(payment, myId)
-
-            return (
-              <li key={payment.id} className="payment-list__item payment-item-card">
-                <div className="payment-item-card__main">
-                  <div className="payment-list__title">
-                    {payer?.name} שילם ל{payee?.name ? `־${payee.name}` : ''}
-                  </div>
-                  <div className="payment-list__meta">
-                    {formatDateTime(payment.created_at)}
-                    {direction ? ` · ${direction}` : ''}
-                  </div>
-                  {payment.note ? (
-                    <div className="payment-list__note">{payment.note}</div>
-                  ) : null}
-                </div>
-                <div className="payment-list__right">
-                  <div className="payment-list__amount">{formatCurrency(payment.amount)}</div>
-                  <PaymentStatusChip status={payment.status} />
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      </Card>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       {isPaymentModalOpen ? (
         <div className="modal-backdrop" role="presentation">
@@ -258,9 +396,12 @@ export function PaymentsPage() {
           >
             <div className="payment-modal__head">
               <div>
-                <p className="payments-hero__eyebrow">רישום תשלום</p>
-                <h2 id="add-payment-title">תשלום חדש</h2>
-                <p>התשלום יישמר ברשימת התשלומים בדמו מיד לאחר השמירה.</p>
+                <p className="payments-hero__eyebrow">
+                  {editingPayment ? 'עריכת תשלום' : 'רישום תשלום'}
+                </p>
+                <h2 id="add-payment-title">
+                  {editingPayment ? 'עדכון תשלום' : 'תשלום חדש'}
+                </h2>
               </div>
               <button type="button" className="btn-text" onClick={closePaymentModal}>
                 סגירה
@@ -276,7 +417,7 @@ export function PaymentsPage() {
                     value={paymentForm.payerId}
                     onChange={(event) => updatePaymentForm('payerId', event.target.value)}
                   >
-                    {mockUsers.map((roommate) => (
+                    {roommates.map((roommate) => (
                       <option key={roommate.id} value={roommate.id}>
                         {roommate.name}
                       </option>
@@ -291,7 +432,7 @@ export function PaymentsPage() {
                     value={paymentForm.payeeId}
                     onChange={(event) => updatePaymentForm('payeeId', event.target.value)}
                   >
-                    {mockUsers.map((roommate) => (
+                    {roommates.map((roommate) => (
                       <option key={roommate.id} value={roommate.id}>
                         {roommate.name}
                       </option>
@@ -323,9 +464,7 @@ export function PaymentsPage() {
                     type="date"
                     dir="ltr"
                     value={paymentForm.paymentDate}
-                    onChange={(event) =>
-                      updatePaymentForm('paymentDate', event.target.value)
-                    }
+                    onChange={(event) => updatePaymentForm('paymentDate', event.target.value)}
                   />
                 </label>
               </div>
@@ -340,21 +479,94 @@ export function PaymentsPage() {
                 />
               </label>
 
-              {formError ? (
-                <p className="form-message form-message--error">{formError}</p>
-              ) : null}
+              {formError ? <p className="form-message form-message--error">{formError}</p> : null}
 
               <div className="payment-form__actions">
                 <button type="button" className="btn btn--secondary" onClick={closePaymentModal}>
                   ביטול
                 </button>
                 <button type="submit" className="btn btn--primary">
-                  שמירת תשלום
+                  {editingPayment ? 'שמירת שינויים' : 'שמירת תשלום'}
                 </button>
               </div>
             </form>
           </section>
         </div>
+      ) : null}
+
+      {selectedPayment ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="payment-modal card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payment-details-title"
+          >
+            <div className="payment-modal__head">
+              <div>
+                <p className="payments-hero__eyebrow">פרטי תשלום</p>
+                <h2 id="payment-details-title">
+                  {getUserName(selectedPayment.payer_id)} שילם ל־
+                  {getUserName(selectedPayment.payee_id)}
+                </h2>
+                <p>{formatDateTime(selectedPayment.created_at)}</p>
+              </div>
+              <button type="button" className="btn-text" onClick={() => setSelectedPayment(null)}>
+                סגירה
+              </button>
+            </div>
+
+            <div className="expense-detail">
+              <div className="expense-detail__amount">
+                <span>סכום התשלום</span>
+                <strong>{formatCurrency(selectedPayment.amount)}</strong>
+              </div>
+
+              <div className="expense-detail__facts">
+                <div>
+                  <span>משלם</span>
+                  <strong>{getUserName(selectedPayment.payer_id)}</strong>
+                </div>
+                <div>
+                  <span>מקבל</span>
+                  <strong>{getUserName(selectedPayment.payee_id)}</strong>
+                </div>
+                <div>
+                  <span>הערה</span>
+                  <strong>{selectedPayment.note?.trim() || 'ללא הערה'}</strong>
+                </div>
+              </div>
+
+              <div className="expense-form__actions">
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => openEditPaymentModal(selectedPayment)}
+                >
+                  עריכה
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--danger"
+                  onClick={() => setPaymentToDelete(selectedPayment)}
+                >
+                  מחיקה
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {paymentToDelete ? (
+        <ConfirmDialog
+          title="למחוק את התשלום?"
+          message="התשלום יוסר מההיסטוריה ולא ישפיע עוד על היתרות בין הדיירים."
+          confirmLabel="מחיקה"
+          cancelLabel="ביטול"
+          onConfirm={confirmDeletePayment}
+          onCancel={() => setPaymentToDelete(null)}
+        />
       ) : null}
     </div>
   )

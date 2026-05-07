@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { TicketStatusChip } from '../../components/StatusChip'
 import { useAuth } from '../../context/AuthContext'
 import { useApartment } from '../../context/ApartmentContext'
@@ -35,15 +36,16 @@ function formatTicketDate(value: string) {
 
 export function TicketsPage() {
   const { user } = useAuth()
-  const { tickets, addTicket } = useTickets()
+  const { tickets, addTicket, deleteTicket } = useTickets()
   const { current } = useApartment()
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false)
+  const [ticketToDelete, setTicketToDelete] = useState<number | null>(null)
   const [ticketForm, setTicketForm] =
     useState<TicketFormState>(initialTicketForm)
   const [attachments, setAttachments] = useState<TicketAttachment[]>([])
   const [formError, setFormError] = useState('')
   const isLandlord = user?.role === 'landlord'
-  const apartmentId = current?.apartment.id ?? 1
+  const apartmentId = current?.apartment.id ?? 0
   const scopedTickets = tickets.filter((ticket) => ticket.apartment_id === apartmentId)
 
   function updateTicketForm(field: keyof TicketFormState, value: string) {
@@ -88,11 +90,17 @@ export function TicketsPage() {
       title: ticketForm.title.trim(),
       description: ticketForm.description.trim(),
       category: ticketForm.category,
-      createdBy: user?.id ?? 1,
+      createdBy: user?.id ?? 0,
       apartmentId,
       attachments,
     })
     closeTicketModal()
+  }
+
+  function confirmDeleteTicket() {
+    if (ticketToDelete == null) return
+    deleteTicket(ticketToDelete)
+    setTicketToDelete(null)
   }
 
   function renderTicketContent(ticket: (typeof tickets)[number]) {
@@ -119,10 +127,6 @@ export function TicketsPage() {
   return (
     <div className="page tickets-page">
       <div className="page__head tickets-hero">
-        <div>
-          <p className="tickets-hero__eyebrow">פניות</p>
-          <h1 className="page__title">פניות לבעל הדירה</h1>
-        </div>
         {isLandlord ? null : (
           <button
             type="button"
@@ -139,13 +143,26 @@ export function TicketsPage() {
           {scopedTickets.map((ticket) => {
             return (
               <li key={ticket.id} className="ticket-list__item">
-                <Link
-                  to={ticketDetailsPath(ticket.id)}
-                  className="ticket-list__link ticket-item-card"
-                  aria-label={`פתיחת הפנייה: ${ticket.title}`}
-                >
-                  {renderTicketContent(ticket)}
-                </Link>
+                <div className="ticket-item-card">
+                  <Link
+                    to={ticketDetailsPath(ticket.id)}
+                    className="ticket-list__link"
+                    aria-label={`פתיחת הפנייה: ${ticket.title}`}
+                  >
+                    {renderTicketContent(ticket)}
+                  </Link>
+                  {isLandlord ? null : (
+                    <div className="payment-form__actions">
+                      <button
+                        type="button"
+                        className="btn-text btn-text--danger"
+                        onClick={() => setTicketToDelete(ticket.id)}
+                      >
+                        מחיקה
+                      </button>
+                    </div>
+                  )}
+                </div>
               </li>
             )
           })}
@@ -252,6 +269,17 @@ export function TicketsPage() {
             </form>
           </section>
         </div>
+      ) : null}
+
+      {ticketToDelete != null ? (
+        <ConfirmDialog
+          title="למחוק את הפנייה?"
+          message="הפנייה תוסר מרשימת הפניות ולא תהיה זמינה עוד."
+          confirmLabel="מחיקה"
+          cancelLabel="ביטול"
+          onConfirm={confirmDeleteTicket}
+          onCancel={() => setTicketToDelete(null)}
+        />
       ) : null}
     </div>
   )

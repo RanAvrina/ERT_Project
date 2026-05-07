@@ -29,6 +29,15 @@ export interface Expense {
   date: string
   status: 'active' | 'deleted'
   participant_ids: number[]
+  attachments?: ExpenseAttachment[]
+}
+
+export interface ExpenseAttachment {
+  id: string
+  name: string
+  type: string
+  size: number
+  url: string
 }
 
 export type PaymentStatus = 'recorded' | 'cancelled'
@@ -71,6 +80,7 @@ export type ShoppingItemStatus = 'open' | 'purchased' | 'cancelled'
 
 export interface ShoppingItem {
   id: number
+  apartment_id?: number
   shopping_list_id: number
   item_name: string
   quantity: string | null
@@ -100,6 +110,7 @@ export interface MaintenanceTicket {
   status: TicketStatus
   created_by: number
   created_at: string
+  attachments?: TicketAttachment[]
 }
 
 export interface TicketComment {
@@ -108,4 +119,35 @@ export interface TicketComment {
   user_id: number
   comment_text: string
   created_at: string
+}
+
+export interface TicketAttachment {
+  id: string
+  name: string
+  type: string
+  size: number
+  url: string
+}
+
+export interface ApartmentInfoAttachment {
+  id: string
+  name: string
+  type: string
+  size: number
+  url: string
+}
+
+export interface ApartmentInfoItem {
+  id: number
+  apartment_id: number
+  title: string
+  category_label: string | null
+  provider: string | null
+  meter_number: string | null
+  account_number: string | null
+  phone: string | null
+  notes: string | null
+  attachments: ApartmentInfoAttachment[]
+  created_at: string
+  updated_at: string
 }
