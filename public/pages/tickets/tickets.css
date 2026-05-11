@@ -1,0 +1,61 @@
+/* ====== TICKETS PAGE STYLES ====== */
+
+.tickets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ticket-card {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 1.5rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.ticket-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.ticket-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+.ticket-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ticket-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.ticket-status.open {
+  background: rgba(46, 196, 182, 0.2);
+  color: var(--primary-color);
+}
+
+.ticket-status.in-progress {
+  background: rgba(255, 217, 61, 0.2);
+  color: #cc7000;
+}
+
+.ticket-status.closed {
+  background: rgba(81, 207, 102, 0.2);
+  color: var(--success-color);
+}
+
+.ticket-meta {
+  display: flex;
+  gap: 1.5rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}

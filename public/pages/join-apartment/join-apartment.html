@@ -1,0 +1,35 @@
+<!-- JOIN APARTMENT PAGE -->
+
+<div class="container page-container join-container">
+  <div class="join-card">
+    <h1 class="page-title">הצטרף לדירה</h1>
+
+    <p class="join-description">
+      אם קיבלת קוד הזמנה מחבר דיור, הזן אותו כאן
+    </p>
+
+    <form id="joinApartmentForm">
+      <div class="form-group">
+        <label for="inviteCode">קוד הזמנה</label>
+        <input
+          type="text"
+          id="inviteCode"
+          placeholder="הזן את קוד ההזמנה"
+          required
+        />
+        <span class="error-text" id="inviteError"></span>
+      </div>
+
+      <button type="submit" class="button button-primary" id="joinBtn">
+        הצטרף
+      </button>
+    </form>
+
+    <div class="join-footer">
+      <p>זה הפעם הראשונה?</p>
+      <a href="./pages/create-apartment/create-apartment.html" class="link">
+        צור דירה חדשה
+      </a>
+    </div>
+  </div>
+</div>

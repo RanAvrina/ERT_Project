@@ -1,0 +1,40 @@
+<!-- SHOPPING PAGE -->
+
+<div class="container page-container">
+  <div class="page-header">
+    <h1 class="page-title">רשימת קניות</h1>
+    <button class="button button-primary" id="addItemBtn">הוסף פריט</button>
+  </div>
+
+  <div id="shoppingList" class="shopping-list">מטען...</div>
+</div>
+
+<!-- ADD ITEM DIALOG -->
+<div class="dialog-overlay" id="addItemDialog" style="display: none;">
+  <div class="dialog-content">
+    <h2>הוסף פריט לרשימה</h2>
+    <form id="itemForm">
+      <div class="form-group">
+        <label for="itemName">שם הפריט</label>
+        <input type="text" id="itemName" required />
+      </div>
+      <div class="form-group">
+        <label for="itemQuantity">כמות</label>
+        <input type="number" id="itemQuantity" min="1" />
+      </div>
+      <div class="form-group">
+        <label for="itemCategory">קטגוריה</label>
+        <select id="itemCategory">
+          <option>פירות וירקות</option>
+          <option>בשר וחלבון</option>
+          <option>מוקפצים</option>
+          <option>אחר</option>
+        </select>
+      </div>
+      <div class="dialog-buttons">
+        <button type="submit" class="button button-primary">שמור</button>
+        <button type="button" class="button button-secondary" id="cancelItem">ביטול</button>
+      </div>
+    </form>
+  </div>
+</div>

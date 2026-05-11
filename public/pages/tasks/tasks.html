@@ -1,0 +1,35 @@
+<!-- TASKS PAGE -->
+
+<div class="container page-container">
+  <div class="page-header">
+    <h1 class="page-title">משימות</h1>
+    <button class="button button-primary" id="addTaskBtn">הוסף משימה</button>
+  </div>
+
+  <div id="tasksList" class="tasks-list">מטען...</div>
+</div>
+
+<!-- ADD TASK DIALOG -->
+<div class="dialog-overlay" id="addTaskDialog" style="display: none;">
+  <div class="dialog-content">
+    <h2>הוסף משימה</h2>
+    <form id="taskForm">
+      <div class="form-group">
+        <label for="taskTitle">כותרת</label>
+        <input type="text" id="taskTitle" required />
+      </div>
+      <div class="form-group">
+        <label for="taskDescription">תיאור</label>
+        <textarea id="taskDescription" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="taskAssignee">מוקצה ל</label>
+        <input type="text" id="taskAssignee" />
+      </div>
+      <div class="dialog-buttons">
+        <button type="submit" class="button button-primary">שמור</button>
+        <button type="button" class="button button-secondary" id="cancelTask">ביטול</button>
+      </div>
+    </form>
+  </div>
+</div>

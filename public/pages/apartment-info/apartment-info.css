@@ -1,0 +1,50 @@
+/* ====== APARTMENT INFO STYLES ====== */
+
+.apartment-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.info-card {
+  background: white;
+  border: 2px solid var(--primary-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.info-card h3 {
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  margin-top: 0;
+}
+
+.info-card p {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  margin: 0;
+}
+
+#amenitiesList li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+#amenitiesList li:before {
+  content: '✓ ';
+  color: var(--success-color);
+  font-weight: bold;
+  margin-left: 0.5rem;
+}
+
+#amenitiesList li:last-child {
+  border-bottom: none;
+}
+
+#editApartmentBtn {
+  margin-top: 2rem;
+}

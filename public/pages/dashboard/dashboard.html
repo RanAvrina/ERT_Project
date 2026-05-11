@@ -1,0 +1,51 @@
+<!-- DASHBOARD PAGE -->
+
+<div class="container page-container">
+  <h1 class="page-title">דשבורד</h1>
+
+  <div class="user-info" id="userInfo"></div>
+
+  <div class="dashboard-grid">
+    <!-- STATISTICS CARDS -->
+    <div class="card stat-card">
+      <div class="stat-number" id="expensesCount">0</div>
+      <div class="stat-label">הוצאות חודש זה</div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-number" id="tasksCount">0</div>
+      <div class="stat-label">משימות בעלות</div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-number" id="balanceAmount">₪0</div>
+      <div class="stat-label">היתרה שלך</div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-number" id="ticketsCount">0</div>
+      <div class="stat-label">כרטיסים פתוחים</div>
+    </div>
+  </div>
+
+  <!-- RECENT ACTIVITIES -->
+  <div class="card">
+    <h2 class="card-title">פעילויות אחרונות</h2>
+    <ul class="activities-list" id="activitiesList">
+      <li>טוען...</li>
+    </ul>
+  </div>
+
+  <!-- QUICK ACTIONS -->
+  <div class="quick-actions">
+    <a href="./pages/expenses/expenses.html" class="button button-primary">
+      להוסיף הוצאה
+    </a>
+    <a href="./pages/tasks/tasks.html" class="button button-primary">
+      להוסיף משימה
+    </a>
+    <a href="./pages/shopping/shopping.html" class="button button-primary">
+      לעדכן רשימת קניות
+    </a>
+  </div>
+</div>

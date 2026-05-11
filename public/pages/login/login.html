@@ -1,0 +1,85 @@
+<!-- LOGIN PAGE -->
+<!-- 
+  עמוד ההתחברות
+  קובץ: login.html
+  תיאור: טופס התחברות עם שדות אימייל וסיסמה
+-->
+
+<div class="login-container">
+  <div class="login-card">
+    <h1 class="page-title">התחברות</h1>
+
+    <!-- FORM ERRORS -->
+    <div class="error-message" id="errorMessage" style="display: none;"></div>
+
+    <!-- LOGIN FORM -->
+    <form id="loginForm" class="login-form">
+      <!-- EMAIL FIELD -->
+      <div class="form-group">
+        <label for="email">כתובת אימייל</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          placeholder="הזן את כתובת האימייל שלך"
+          required
+        />
+        <span class="error-text" id="emailError"></span>
+      </div>
+
+      <!-- PASSWORD FIELD -->
+      <div class="form-group">
+        <label for="password">סיסמה</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="הזן את הסיסמה שלך"
+          required
+        />
+        <span class="error-text" id="passwordError"></span>
+      </div>
+
+      <!-- REMEMBER ME -->
+      <div class="form-group checkbox">
+        <input type="checkbox" id="rememberMe" name="rememberMe" />
+        <label for="rememberMe" class="checkbox-label">זכור אותי</label>
+      </div>
+
+      <!-- SUBMIT BUTTON -->
+      <button type="submit" class="button button-primary" id="submitBtn">
+        התחבר
+      </button>
+    </form>
+
+    <!-- FORGOT PASSWORD LINK -->
+    <div class="form-footer">
+      <a href="#" class="link" id="forgotPasswordLink">שכחת סיסמה?</a>
+      <a href="./pages/register/register.html" class="link">הרשמה</a>
+    </div>
+
+    <!-- FORGOT PASSWORD DIALOG -->
+    <div class="dialog-overlay" id="resetDialog" style="display: none;">
+      <div class="dialog-content">
+        <h2>איפוס סיסמה</h2>
+        <p>הזן את כתובת האימייל שלך כדי לקבל לינק לאיפוס הסיסמה</p>
+
+        <form id="resetForm">
+          <div class="form-group">
+            <label for="resetEmail">כתובת אימייל</label>
+            <input type="email" id="resetEmail" name="resetEmail" required />
+          </div>
+
+          <div class="dialog-buttons">
+            <button type="submit" class="button button-primary">שלח</button>
+            <button type="button" class="button button-secondary" id="cancelReset">
+              ביטול
+            </button>
+          </div>
+        </form>
+
+        <div class="reset-message" id="resetMessage"></div>
+      </div>
+    </div>
+  </div>
+</div>

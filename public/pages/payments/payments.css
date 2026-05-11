@@ -1,0 +1,70 @@
+/* ====== PAYMENTS PAGE STYLES ====== */
+
+.payments-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.summary-card {
+  text-align: center;
+}
+
+.summary-card h3 {
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.balance-amount,
+.amount-positive,
+.amount-negative {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.amount-positive {
+  color: var(--success-color);
+}
+
+.amount-negative {
+  color: var(--danger-color);
+}
+
+.payments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.payment-item {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.payment-info {
+  flex: 1;
+}
+
+.payment-from-to {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 0.25rem;
+}
+
+.payment-date {
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.payment-amount {
+  font-weight: 700;
+  font-size: 1.25rem;
+}

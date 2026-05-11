@@ -1,0 +1,207 @@
+/* ====== LOGIN PAGE STYLES ====== */
+
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - 120px);
+  padding: 2rem 1rem;
+}
+
+.login-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 3rem 2rem;
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-card .page-title {
+  text-align: center;
+  margin-bottom: 2rem;
+  font-size: 1.75rem;
+}
+
+.login-form {
+  margin-bottom: 1.5rem;
+}
+
+.login-form .form-group {
+  margin-bottom: 1.5rem;
+}
+
+.login-form label {
+  font-weight: 600;
+  color: #333;
+}
+
+.login-form input[type="email"],
+.login-form input[type="password"] {
+  width: 100%;
+  padding: 0.875rem;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+  transition: border-color 0.3s;
+}
+
+.login-form input[type="email"]:focus,
+.login-form input[type="password"]:focus {
+  border-color: var(--primary-color);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(46, 196, 182, 0.1);
+}
+
+/* ====== CHECKBOX ====== */
+
+.form-group.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-group.checkbox input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.checkbox-label {
+  margin: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+/* ====== BUTTONS ====== */
+
+#submitBtn {
+  width: 100%;
+  padding: 0.875rem;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+#submitBtn:active {
+  transform: scale(0.98);
+}
+
+/* ====== FORM FOOTER ====== */
+
+.form-footer {
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.link {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.3s;
+}
+
+.link:hover {
+  color: #23a89f;
+  text-decoration: underline;
+}
+
+/* ====== ERROR MESSAGES ====== */
+
+.error-message {
+  background-color: rgba(255, 107, 107, 0.1);
+  color: var(--danger-color);
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--danger-color);
+}
+
+.error-text {
+  color: var(--danger-color);
+  font-size: 0.875rem;
+  display: block;
+  margin-top: 0.25rem;
+  min-height: 1.2rem;
+}
+
+/* ====== DIALOG OVERLAY ====== */
+
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.dialog-content {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.2);
+}
+
+.dialog-content h2 {
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.dialog-content p {
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+
+.dialog-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.dialog-buttons .button {
+  flex: 1;
+}
+
+.reset-message {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 6px;
+  text-align: center;
+  min-height: 2rem;
+}
+
+.reset-message.success {
+  background-color: rgba(81, 207, 102, 0.1);
+  color: var(--success-color);
+}
+
+.reset-message.error {
+  background-color: rgba(255, 107, 107, 0.1);
+  color: var(--danger-color);
+}
+
+/* ====== RESPONSIVE ====== */
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 2rem 1.5rem;
+  }
+
+  .login-card .page-title {
+    font-size: 1.5rem;
+  }
+
+  .form-footer {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}

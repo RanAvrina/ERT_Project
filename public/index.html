@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2EC4B6" />
+    <title>ERT — ניהול דירת שותפים</title>
+    
+    <!-- תאור CSS עולמי -->
+    <link rel="stylesheet" href="./assets/css/main.css" />
+  </head>
+  <body>
+    <!-- תפריט ראשי -->
+    <nav class="main-nav">
+      <a href="./pages/dashboard/dashboard.html" class="nav-link">📊 דשבורד</a>
+      <a href="./pages/apartment-info/apartment-info.html" class="nav-link">🏠 מידע דירה</a>
+      <a href="./pages/roommates/roommates.html" class="nav-link">👥 שותפים</a>
+      <a href="./pages/expenses/expenses.html" class="nav-link">💰 הוצאות</a>
+      <a href="./pages/tasks/tasks.html" class="nav-link">✓ משימות</a>
+      <a href="./pages/shopping/shopping.html" class="nav-link">🛒 קניות</a>
+      <a href="./pages/payments/payments.html" class="nav-link">💳 תשלומים</a>
+      <a href="./pages/tickets/tickets.html" class="nav-link">🎫 כרטיסים</a>
+    </nav>
+
+    <!-- תוכן עמודים יטען כאן בעזרת JavaScript -->
+    <div id="root">
+      <div style="text-align: center; padding: 3rem; color: #666;">
+        <p>בחר עמוד מהתפריט כדי להתחיל</p>
+        <p style="font-size: 3rem; margin-top: 2rem;">🏠</p>
+      </div>
+    </div>
+
+    <!-- טעין JavaScript עולמי וקבצי ה-JS של עמודים -->
+    <script src="./assets/js/main.js"></script>
+    
+    <script>
+      // טעין את דף ההתחברות בעת פתיחת הדף
+      document.addEventListener('DOMContentLoaded', () => {
+        const authToken = getFromStorage('authToken');
+        if (!authToken) {
+          // היוח למשתמש שאינו מחובר - טעין דף התחברות
+          loadPage('./pages/login/login.html');
+        } else {
+          // משתמש מחובר - טעין דשבורד
+          loadPage('./pages/dashboard/dashboard.html');
+        }
+      });
+    </script>
+  </body>
+</html>

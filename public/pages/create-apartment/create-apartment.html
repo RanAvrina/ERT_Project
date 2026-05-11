@@ -1,0 +1,56 @@
+<!-- CREATE APARTMENT PAGE -->
+
+<div class="container page-container">
+  <h1 class="page-title">צור דירה חדשה</h1>
+
+  <form id="createApartmentForm" class="create-form">
+    <div class="form-group">
+      <label for="address">כתובת הדירה</label>
+      <input type="text" id="address" placeholder="למ"ד, רחוב השלום 42" required />
+    </div>
+
+    <div class="form-group">
+      <label for="size">שטח (מ"ר)</label>
+      <input type="number" id="size" placeholder="85" required />
+    </div>
+
+    <div class="form-group">
+      <label for="rooms">מספר חדרים</label>
+      <input type="number" id="rooms" placeholder="3" required />
+    </div>
+
+    <div class="form-group">
+      <label for="rent">שכירות חודשית (₪)</label>
+      <input type="number" id="rent" placeholder="3500" required />
+    </div>
+
+    <div class="form-group">
+      <label for="description">תיאור הדירה</label>
+      <textarea id="description" rows="4" placeholder="תיאור אופציונלי של הדירה"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>שירותים בדירה</label>
+      <div class="checkbox-group">
+        <div>
+          <input type="checkbox" id="parking" value="חניה" />
+          <label for="parking">חניה</label>
+        </div>
+        <div>
+          <input type="checkbox" id="elevator" value="מעלית" />
+          <label for="elevator">מעלית</label>
+        </div>
+        <div>
+          <input type="checkbox" id="garden" value="גן" />
+          <label for="garden">גן</label>
+        </div>
+        <div>
+          <input type="checkbox" id="furnished" value="מרוהט" />
+          <label for="furnished">מרוהט</label>
+        </div>
+      </div>
+    </div>
+
+    <button type="submit" class="button button-primary">צור דירה</button>
+  </form>
+</div>

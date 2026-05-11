@@ -1,0 +1,68 @@
+/* ====== JOIN APARTMENT STYLES ====== */
+
+.join-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - 120px);
+  padding: 2rem 1rem;
+}
+
+.join-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 3rem 2rem;
+  width: 100%;
+  max-width: 400px;
+}
+
+.join-card .page-title {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.join-description {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+}
+
+.join-card form {
+  margin-bottom: 2rem;
+}
+
+#joinBtn {
+  width: 100%;
+}
+
+.join-footer {
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+  padding-top: 1.5rem;
+}
+
+.join-footer p {
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.join-footer .link {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.join-footer .link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+  .join-card {
+    padding: 2rem 1.5rem;
+  }
+
+  .join-card .page-title {
+    font-size: 1.5rem;
+  }
+}

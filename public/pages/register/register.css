@@ -1,0 +1,35 @@
+/* ====== REGISTER PAGE STYLES ====== */
+
+.page-container {
+  max-width: 500px;
+  margin: 2rem auto;
+}
+
+.register-form {
+  margin-top: 2rem;
+}
+
+.register-form .form-group {
+  margin-bottom: 1.5rem;
+}
+
+.register-footer {
+  text-align: center;
+  margin-top: 2rem;
+  color: var(--text-secondary);
+}
+
+.register-footer .link {
+  margin-right: 0.5rem;
+}
+
+#submitBtn {
+  width: 100%;
+  padding: 0.875rem;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    margin: 1rem;
+  }
+}
