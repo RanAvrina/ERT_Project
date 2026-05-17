@@ -54,12 +54,16 @@ export interface Payment {
 }
 
 export type TaskStatus = 'open' | 'in_progress' | 'done' | 'cancelled'
+export type TaskType = 'cleaning' | 'maintenance' | 'shopping' | 'inspection' | 'other'
 
 export interface Task {
   id: number
   apartment_id: number
   title: string
   description: string | null
+  task_type?: TaskType | null
+  target_item_id?: string | null
+  target_item_name?: string | null
   assignee_id: number | null
   due_date: string | null
   status: TaskStatus

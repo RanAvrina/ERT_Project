@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useTasksStore } from '../data/repositories/tasksRepository'
-import type { Task, TaskStatus } from '../types/models'
+import type { Task, TaskStatus, TaskType } from '../types/models'
 
 interface NewTaskInput {
   apartment_id: number
@@ -16,6 +16,10 @@ interface NewTaskInput {
   due_date: string
   status: TaskStatus
   created_by: number
+  description?: string | null
+  task_type?: TaskType | null
+  target_item_id?: string | null
+  target_item_name?: string | null
 }
 
 interface UpdateTaskInput {
@@ -23,6 +27,10 @@ interface UpdateTaskInput {
   assignee_id: number
   due_date: string
   status: TaskStatus
+  description?: string | null
+  task_type?: TaskType | null
+  target_item_id?: string | null
+  target_item_name?: string | null
 }
 
 interface TasksState {
@@ -56,7 +64,10 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         id: Math.max(...current.map((item) => item.id), 0) + 1,
         apartment_id: task.apartment_id,
         title: task.title,
-        description: null,
+        description: task.description ?? null,
+        task_type: task.task_type ?? null,
+        target_item_id: task.target_item_id ?? null,
+        target_item_name: task.target_item_name ?? null,
         assignee_id: task.assignee_id,
         due_date: task.due_date,
         status: task.status,
@@ -81,6 +92,10 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         updatedTask = {
           ...item,
           title: task.title,
+          description: task.description ?? null,
+          task_type: task.task_type ?? null,
+          target_item_id: task.target_item_id ?? null,
+          target_item_name: task.target_item_name ?? null,
           assignee_id: task.assignee_id,
           due_date: task.due_date,
           status: task.status,
